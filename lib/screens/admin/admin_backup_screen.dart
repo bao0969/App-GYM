@@ -153,7 +153,7 @@ class _AdminBackupScreenState extends State<AdminBackupScreen> {
                 ),
                 value: true,
                 onChanged: (val) {},
-                activeColor: AppColors.primary,
+                activeThumbColor: AppColors.primary,
               ),
             ),
             const SizedBox(height: 32),

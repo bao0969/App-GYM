@@ -197,16 +197,19 @@ class GamificationService {
 
   // ==================== LEADERBOARD ====================
 
-  /// Bảng xếp hạng theo tuần (7 ngày gần nhất - rolling window).
-  /// Fix #9: Dùng weeklyPoints (tích lũy từ workout_logs trong 7 ngày)
-  /// thay vì totalPoints all-time. weeklyPoints được reset mỗi tuần.
+  /// Bảng xếp hạng theo tuần: reset mỗi thứ 2 lúc 00:00:00.
+  /// Tính điểm XP tích lũy từ workout_logs bắt đầu từ thứ 2 của tuần này.
   Future<List<LeaderboardEntry>> getWeeklyLeaderboard({int limit = 50}) async {
     try {
-      // Tính điểm XP từng member trong 7 ngày qua từ workout_logs
-      final weekAgo = DateTime.now().subtract(const Duration(days: 7));
+      // Lấy thời điểm bắt đầu thứ 2 tuần này lúc 00:00:00 (Reset mỗi thứ 2)
+      final now = DateTime.now();
+      final daysSinceMonday = now.weekday - 1; // weekday: 1 (Monday) đến 7 (Sunday)
+      final startOfWeek = DateTime(now.year, now.month, now.day)
+          .subtract(Duration(days: daysSinceMonday));
+          
       final workoutSnap = await _db
           .collection('workout_logs')
-          .where('date', isGreaterThanOrEqualTo: Timestamp.fromDate(weekAgo))
+          .where('date', isGreaterThanOrEqualTo: Timestamp.fromDate(startOfWeek))
           .get();
 
       // Tổng hợp XP theo memberId

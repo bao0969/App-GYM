@@ -43,6 +43,8 @@ dependencies:
   cached_network_image: ^3.4.1
   image_picker: ^1.1.2
   mobile_scanner: ^7.2.0
+  csv: ^8.0.0
+  share_plus: ^12.0.2
 
 dev_dependencies:
   flutter_test:

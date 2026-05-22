@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter/services.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/models/member_model.dart';
 import '../../core/services/firestore_service.dart';
@@ -14,6 +16,8 @@ import 'member_nutrition_screen.dart';
 import 'member_booking_screen.dart';
 import '../../widgets/member/member_banner_carousel.dart';
 import 'member_gamification_screen.dart';
+import 'member_promos_packages_screen.dart';
+import 'member_support_screen.dart';
 
 class MemberDashboardScreen extends StatefulWidget {
   const MemberDashboardScreen({super.key});
@@ -24,6 +28,187 @@ class MemberDashboardScreen extends StatefulWidget {
 
 class _MemberDashboardScreenState extends State<MemberDashboardScreen> {
   int _currentIndex = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkWelcomePopup();
+    });
+  }
+
+  Future<void> _checkWelcomePopup() async {
+    final user = context.read<AuthProvider>().user;
+    if (user == null) return;
+    
+    final prefs = await SharedPreferences.getInstance();
+    final key = 'has_shown_welcome_popup_${user.uid}';
+    final hasShown = prefs.getBool(key) ?? false;
+    
+    if (!hasShown) {
+      if (!mounted) return;
+      _showWelcomePopup(context, prefs, key);
+    }
+  }
+
+  void _showWelcomePopup(BuildContext context, SharedPreferences prefs, String key) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      showGeneralDialog(
+        context: context,
+        barrierDismissible: false,
+        barrierColor: Colors.black.withValues(alpha: 0.85),
+        transitionDuration: const Duration(milliseconds: 500),
+        pageBuilder: (dialogContext, anim1, anim2) {
+          return AlertDialog(
+            backgroundColor: AppColors.surface,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+            title: Column(
+              children: [
+                ShaderMask(
+                  shaderCallback: (bounds) => AppColors.greenGradient.createShader(bounds),
+                  child: const Icon(
+                    Icons.card_giftcard_rounded,
+                    color: Colors.white,
+                    size: 48,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  'ƯU ĐÃI THÀNH VIÊN MỚI! 🎉',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ],
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'Chào mừng bạn đến với GymSync! Chúng tôi có những phần quà đặc biệt dành riêng cho bạn:',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: AppColors.textSecondary, fontSize: 13, height: 1.4),
+                ),
+                const SizedBox(height: 16),
+                
+                // Promo 1 Card
+                _buildPromoItem(
+                  dialogContext,
+                  title: 'Giảm 50% Gói Hội Viên',
+                  code: 'WELCOME50',
+                  desc: 'Áp dụng cho lần đầu đăng ký gói tập online.',
+                ),
+                const SizedBox(height: 10),
+                
+                // Promo 2 Card
+                _buildPromoItem(
+                  dialogContext,
+                  title: 'Tặng 7 Ngày Tập Miễn Phí',
+                  code: 'FREE7D',
+                  desc: 'Nhận trải nghiệm 7 ngày tập thử đầy đủ dịch vụ.',
+                ),
+              ],
+            ),
+            actions: [
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () async {
+                    await prefs.setBool(key, true);
+                    if (dialogContext.mounted) Navigator.pop(dialogContext);
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.success,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                  child: const Text(
+                    'NHẬN NGAY & BẮT ĐẦU',
+                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 13),
+                  ),
+                ),
+              ),
+            ],
+          );
+        },
+        transitionBuilder: (dialogContext, anim1, anim2, child) {
+          return ScaleTransition(
+            scale: anim1,
+            child: child,
+          );
+        },
+      );
+    });
+  }
+
+  Widget _buildPromoItem(BuildContext context, {
+    required String title,
+    required String code,
+    required String desc,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.card,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.success.withValues(alpha: 0.2)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                title,
+                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+              ),
+              GestureDetector(
+                onTap: () {
+                  Clipboard.setData(ClipboardData(text: code));
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Đã sao chép mã $code!'),
+                      backgroundColor: AppColors.success,
+                      duration: const Duration(seconds: 1),
+                    ),
+                  );
+                },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: AppColors.success.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: AppColors.success),
+                  ),
+                  child: Row(
+                    children: [
+                      Text(
+                        code,
+                        style: const TextStyle(color: AppColors.success, fontWeight: FontWeight.bold, fontSize: 11),
+                      ),
+                      const SizedBox(width: 4),
+                      const Icon(Icons.copy_rounded, color: AppColors.success, size: 10),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            desc,
+            style: const TextStyle(color: AppColors.textHint, fontSize: 11),
+          ),
+        ],
+      ),
+    );
+  }
+
 
   @override
   Widget build(BuildContext context) {
@@ -363,6 +548,30 @@ class _MemberHome extends StatelessWidget {
                               MaterialPageRoute(
                                 builder: (_) =>
                                     const MemberTrainerRatingScreen(),
+                              ),
+                            ),
+                          ),
+                          _FeatureCard(
+                            icon: Icons.local_offer_rounded,
+                            label: 'Khuyến Mãi',
+                            color: AppColors.success,
+                            onTap: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) =>
+                                    const MemberPromosPackagesScreen(),
+                              ),
+                            ),
+                          ),
+                          _FeatureCard(
+                            icon: Icons.support_agent_rounded,
+                            label: 'Hỗ Trợ 24/7',
+                            color: AppColors.primary,
+                            onTap: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) =>
+                                    const MemberSupportScreen(),
                               ),
                             ),
                           ),

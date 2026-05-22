@@ -482,16 +482,6 @@ class AdminSettingsScreen extends StatelessWidget {
     );
   }
 
-  void _snack(BuildContext context, String feature) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('$feature — Tính năng đang phát triển'),
-        backgroundColor: AppColors.surfaceLight,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      ),
-    );
-  }
 
   void _showSupport(BuildContext context) {
     showDialog(

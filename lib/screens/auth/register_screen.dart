@@ -110,7 +110,13 @@ class _RegisterScreenState extends State<RegisterScreen>
             Icons.arrow_back_ios_rounded,
             color: AppColors.textPrimary,
           ),
-          onPressed: () => context.pop(),
+          onPressed: () {
+            if (GoRouter.of(context).canPop()) {
+              context.pop();
+            } else {
+              context.go(AppRouter.login);
+            }
+          },
         ),
         title: const Text(
           'Tao Tai Khoan',

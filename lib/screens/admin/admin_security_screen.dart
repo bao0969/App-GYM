@@ -10,7 +10,7 @@ class AdminSecurityScreen extends StatefulWidget {
 }
 
 class _AdminSecurityScreenState extends State<AdminSecurityScreen> {
-  bool _2faEnabled = false;
+  bool _is2FaEnabled = false;
   final _oldPassCtrl = TextEditingController();
   final _newPassCtrl = TextEditingController();
   final _confirmPassCtrl = TextEditingController();
@@ -128,9 +128,9 @@ class _AdminSecurityScreenState extends State<AdminSecurityScreen> {
                   'Tăng cường bảo mật bằng mã OTP gửi qua Email hoặc SMS',
                   style: TextStyle(color: AppColors.textHint, fontSize: 12),
                 ),
-                value: _2faEnabled,
-                onChanged: (val) => setState(() => _2faEnabled = val),
-                activeColor: AppColors.primary,
+                value: _is2FaEnabled,
+                onChanged: (val) => setState(() => _is2FaEnabled = val),
+                activeThumbColor: AppColors.primary,
                 secondary: Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(

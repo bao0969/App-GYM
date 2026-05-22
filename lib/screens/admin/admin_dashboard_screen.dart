@@ -24,6 +24,8 @@ import '../admin/admin_pos_screen.dart';
 import '../admin/admin_inventory_screen.dart';
 import '../admin/admin_lockers_screen.dart';
 import '../admin/admin_inbody_screen.dart';
+import '../admin/admin_support_tickets_screen.dart';
+import '../admin/admin_user_management_screen.dart';
 
 class AdminDashboardScreen extends StatefulWidget {
   const AdminDashboardScreen({super.key});
@@ -487,6 +489,38 @@ class _DashboardHome extends StatelessWidget {
                             ),
                           ),
                         ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        _QuickAction(
+                          label: 'Báo Lỗi & Duyệt',
+                          icon: Icons.rate_review_rounded,
+                          color: AppColors.primary,
+                          onTap: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const AdminSupportTicketsScreen(),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        _QuickAction(
+                          label: 'Phân Quyền',
+                          icon: Icons.people_outline_rounded,
+                          color: AppColors.accent,
+                          onTap: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const AdminUserManagementScreen(),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        const Expanded(child: SizedBox()),
+                        const SizedBox(width: 12),
+                        const Expanded(child: SizedBox()),
                       ],
                     ),
                   ],

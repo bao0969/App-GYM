@@ -50,6 +50,41 @@ class SeedService {
 
       await _auth.signOut();
 
+      // --- SEED SECOND ADMIN ---
+      UserCredential admin2Cred;
+      try {
+        admin2Cred = await _auth.createUserWithEmailAndPassword(
+          email: 'admin2@gymsync.com',
+          password: 'admin123',
+        );
+      } on FirebaseAuthException catch (e) {
+        if (e.code == 'email-already-in-use') {
+          admin2Cred = await _auth.signInWithEmailAndPassword(
+            email: 'admin2@gymsync.com',
+            password: 'admin123',
+          );
+        } else {
+          return;
+        }
+      }
+
+      if (admin2Cred.user != null) {
+        final a2Doc = await _db.collection('users').doc(admin2Cred.user!.uid).get();
+        if (!a2Doc.exists) {
+          final a2User = UserModel(
+            uid: admin2Cred.user!.uid,
+            name: 'Sub Admin GymSync',
+            email: 'admin2@gymsync.com',
+            phone: '0901234567',
+            role: UserRole.admin,
+            createdAt: DateTime.now(),
+          );
+          await _db.collection('users').doc(admin2Cred.user!.uid).set(a2User.toJson());
+        }
+      }
+
+      await _auth.signOut();
+
       // --- SEED MEMBER ---
       UserCredential memberCred;
       try {
@@ -175,12 +210,19 @@ class SeedService {
         final name = data['name'] as String? ?? '';
         var fixedName = name;
         
-        if (name.contains('Ph?m') || name.contains('Dung')) fixedName = 'Phạm Thị Dung';
-        else if (name.contains('L Van H') || name.contains('L  Van H')) fixedName = 'Lê Văn Hùng';
-        else if (name.contains('Ho ng D') || name.contains('Ho  ng D')) fixedName = 'Hoàng Đức Nam';
-        else if (name.contains('Tr?n') || name.contains('Van An')) fixedName = 'Trần Văn An';
-        else if (name.contains('Nguy?n') || name.contains('B ch')) fixedName = 'Nguyễn Thị Bích';
-        else if (name.contains('Dinh Van Khoa')) fixedName = 'Đinh Văn Khoa';
+        if (name.contains('Ph?m') || name.contains('Dung')) {
+          fixedName = 'Phạm Thị Dung';
+        } else if (name.contains('L Van H') || name.contains('L  Van H')) {
+          fixedName = 'Lê Văn Hùng';
+        } else if (name.contains('Ho ng D') || name.contains('Ho  ng D')) {
+          fixedName = 'Hoàng Đức Nam';
+        } else if (name.contains('Tr?n') || name.contains('Van An')) {
+          fixedName = 'Trần Văn An';
+        } else if (name.contains('Nguy?n') || name.contains('B ch')) {
+          fixedName = 'Nguyễn Thị Bích';
+        } else if (name.contains('Dinh Van Khoa')) {
+          fixedName = 'Đinh Văn Khoa';
+        }
         
         if (fixedName != name) {
           await doc.reference.update({'name': fixedName});
