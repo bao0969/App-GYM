@@ -74,27 +74,51 @@ class FirestoreService {
     await _db.collection('members').doc(id).delete();
   }
 
+  /// Kích hoạt membership mới. Nếu hội viên còn hạn, cộng ngày từ expiry cũ.
+  /// Nếu hết hạn hoặc chưa có expiry, tính từ hôm nay. (Fix #2)
   Future<void> activateMember(
     String id,
     int durationDays,
-    int sessionCount,
-  ) async {
+    int sessionCount, {
+    bool stackOnExisting = true, // Cộng ngày vào hạn cũ nếu còn hạn
+  }) async {
     final now = DateTime.now();
+
+    // Lấy expiry hiện tại để quyết định tính từ đâu
+    DateTime baseDate = now;
+    if (stackOnExisting) {
+      final memberDoc = await _db.collection('members').doc(id).get();
+      if (memberDoc.exists) {
+        final data = memberDoc.data()!;
+        if (data['packageExpiry'] is Timestamp) {
+          final existingExpiry = (data['packageExpiry'] as Timestamp).toDate();
+          // Nếu còn hạn → cộng từ expiry cũ; nếu hết hạn → cộng từ hôm nay
+          if (existingExpiry.isAfter(now)) {
+            baseDate = existingExpiry;
+          }
+        }
+      }
+    }
+
     await updateMember(id, {
       'status': MemberStatus.active.name,
       'packageExpiry': Timestamp.fromDate(
-        now.add(Duration(days: durationDays)),
+        baseDate.add(Duration(days: durationDays)),
       ),
       'sessionsRemaining': sessionCount,
     });
   }
 
+  /// Tạm dừng membership. Cộng số ngày pause vào ngày hết hạn để hội viên
+  /// không mất thời gian tập. (Fix #8: dùng isDbActive thay vì currentStatus)
   Future<void> pauseMember(String id, int daysToPause) async {
     final memberDoc = await _db.collection('members').doc(id).get();
     if (!memberDoc.exists) return;
 
     final member = MemberModel.fromJson(memberDoc.data()!, memberDoc.id);
-    if (member.currentStatus == 'active' && member.packageExpiry != null) {
+    // Fix #8: dùng isDbActive (DB enum) thay vì currentStatus (computed string)
+    // để không block member có status 'expiring_soon'
+    if (member.isDbActive && member.packageExpiry != null) {
       final newExpiry = member.packageExpiry!.add(Duration(days: daysToPause));
       await updateMember(id, {
         'status': MemberStatus.paused.name,
@@ -174,12 +198,15 @@ class FirestoreService {
     return _db
         .collection('members')
         .where('trainerId', isEqualTo: trainerId)
-        .orderBy('joinDate', descending: true)
         .snapshots()
         .map(
-          (snap) => snap.docs
-              .map((d) => MemberModel.fromJson(d.data(), d.id))
-              .toList(),
+          (snap) {
+            final list = snap.docs
+                .map((d) => MemberModel.fromJson(d.data(), d.id))
+                .toList();
+            list.sort((a, b) => b.joinDate.compareTo(a.joinDate));
+            return list;
+          },
         );
   }
 
@@ -187,9 +214,12 @@ class FirestoreService {
     final snap = await _db
         .collection('members')
         .where('trainerId', isEqualTo: trainerId)
-        .orderBy('joinDate', descending: true)
         .get();
-    return snap.docs.map((d) => MemberModel.fromJson(d.data(), d.id)).toList();
+    final list = snap.docs
+        .map((d) => MemberModel.fromJson(d.data(), d.id))
+        .toList();
+    list.sort((a, b) => b.joinDate.compareTo(a.joinDate));
+    return list;
   }
 
   Future<void> deleteTrainer(String id) async {
@@ -265,7 +295,11 @@ class FirestoreService {
     return snap.docs.map((d) => CheckInModel.fromJson(d.data(), d.id)).toList();
   }
 
-  /// Thêm check-in với logic chống spam và trừ buổi (V2)
+  /// Thêm check-in với logic chống spam và trừ buổi (Fix #1 + #7)
+  ///
+  /// Fix #7: Chỉ trừ sessionsRemaining nếu member có gói session/PT-based.
+  ///         Gói time-based (30/90/365 ngày) KHÔNG trừ buổi khi check-in thường.
+  /// Fix #1: addCheckIn() không trừ buổi PT – việc đó do completePtSession() làm.
   Future<CheckInModel> addCheckIn(CheckInModel checkIn) async {
     final memberDoc = await _db
         .collection('members')
@@ -297,11 +331,24 @@ class FirestoreService {
       );
     }
 
-    // Rule 3: Deduct session if applicable
-    if (member.sessionsRemaining > 0) {
-      await updateMember(member.id, {
-        'sessionsRemaining': member.sessionsRemaining - 1,
-      });
+    // Rule 3: Chỉ trừ buổi nếu là gói session-based (session/groupClass).
+    // Gói PT không trừ ở đây – completePtSession() chịu trách nhiệm trừ buổi PT.
+    // Gói time-based (30/90/365 ngày) không bao giờ trừ sessionsRemaining khi check-in.
+    if (member.packageId != null && member.sessionsRemaining > 0) {
+      final pkgDoc = await _db
+          .collection('packages')
+          .doc(member.packageId)
+          .get();
+      if (pkgDoc.exists) {
+        final pkg = PackageModel.fromJson(pkgDoc.data()!, pkgDoc.id);
+        // Chỉ trừ nếu là gói session hoặc groupClass (không phải PT, không phải time)
+        if (pkg.type == PackageType.session ||
+            pkg.type == PackageType.groupClass) {
+          await updateMember(member.id, {
+            'sessionsRemaining': member.sessionsRemaining - 1,
+          });
+        }
+      }
     }
 
     final ref = await _db.collection('checkins').add(checkIn.toJson());
@@ -401,29 +448,37 @@ class FirestoreService {
     return booking.copyWith(id: ref.id);
   }
 
+  /// Stream booking của trainer. Sort phía client để tránh cần composite index.
   Stream<List<BookingModel>> streamTrainerBookings(String trainerId) {
     return _db
         .collection('bookings')
         .where('trainerId', isEqualTo: trainerId)
-        .orderBy('startTime', descending: false)
         .snapshots()
         .map(
-          (snap) => snap.docs
-              .map((d) => BookingModel.fromJson(d.data(), d.id))
-              .toList(),
+          (snap) {
+            final list = snap.docs
+                .map((d) => BookingModel.fromJson(d.data(), d.id))
+                .toList();
+            list.sort((a, b) => a.startTime.compareTo(b.startTime));
+            return list;
+          },
         );
   }
 
+  /// Stream booking của member. Sort phía client để tránh cần composite index.
   Stream<List<BookingModel>> streamMemberBookings(String memberId) {
     return _db
         .collection('bookings')
         .where('memberId', isEqualTo: memberId)
-        .orderBy('startTime', descending: false)
         .snapshots()
         .map(
-          (snap) => snap.docs
-              .map((d) => BookingModel.fromJson(d.data(), d.id))
-              .toList(),
+          (snap) {
+            final list = snap.docs
+                .map((d) => BookingModel.fromJson(d.data(), d.id))
+                .toList();
+            list.sort((a, b) => a.startTime.compareTo(b.startTime));
+            return list;
+          },
         );
   }
 
@@ -448,21 +503,34 @@ class FirestoreService {
     });
   }
 
-  Future<void> cancelBooking(String bookingId, {bool isLateCancel = false, String? memberId}) async {
+  /// Hủy booking. Nếu hủy muộn (isLateCancel), trừ 1 buổi của hội viên.
+  /// Fix #6: Dùng packageType từ Firestore thay vì string matching tên gói.
+  Future<void> cancelBooking(
+    String bookingId, {
+    bool isLateCancel = false,
+    String? memberId,
+  }) async {
     await updateBookingStatus(bookingId, BookingStatus.cancelled);
-    
+
     if (isLateCancel && memberId != null) {
-      // Deduct 1 session for late cancellation if applicable
+      // Trừ 1 buổi khi hủy muộn – chỉ áp dụng cho gói session-based
       final memberDoc = await _db.collection('members').doc(memberId).get();
       if (memberDoc.exists) {
-        final data = memberDoc.data()!;
-        final packageName = (data['packageName'] as String?)?.toLowerCase() ?? '';
-        final sessionsRemaining = data['sessionsRemaining'] as int? ?? 0;
-        
-        if ((packageName.contains('buổi') || packageName.contains('session')) && sessionsRemaining > 0) {
-          await _db.collection('members').doc(memberId).update({
-            'sessionsRemaining': sessionsRemaining - 1,
-          });
+        final memberData = memberDoc.data()!;
+        final sessionsRemaining = memberData['sessionsRemaining'] as int? ?? 0;
+        final packageId = memberData['packageId'] as String?;
+
+        if (sessionsRemaining > 0 && packageId != null) {
+          // Fix #6: Kiểm tra packageType từ package document, không dùng tên gói
+          final pkgDoc = await _db.collection('packages').doc(packageId).get();
+          if (pkgDoc.exists) {
+            final pkg = PackageModel.fromJson(pkgDoc.data()!, pkgDoc.id);
+            if (pkg.isSessionBased) {
+              await _db.collection('members').doc(memberId).update({
+                'sessionsRemaining': sessionsRemaining - 1,
+              });
+            }
+          }
         }
       }
     }
@@ -488,6 +556,8 @@ class FirestoreService {
         );
   }
 
+  /// Tạo đơn mua gói online. Fix #4: Nếu có coupon, dùng Transaction atomic
+  /// để kiểm tra và tăng usedCount cùng lúc, tránh race condition.
   Future<OrderModel> createOnlinePackageOrder({
     required String memberId,
     required PackageModel package,
@@ -496,6 +566,74 @@ class FirestoreService {
     double discountAmount = 0,
     String? paymentNote,
   }) async {
+    // Fix #4: Nếu có coupon, xử lý atomic trong Transaction
+    if (couponCode != null && couponCode.isNotEmpty) {
+      return await _db.runTransaction<OrderModel>((transaction) async {
+        // Tìm coupon document
+        final couponSnap = await _db
+            .collection('coupons')
+            .where('code', isEqualTo: couponCode.toUpperCase().trim())
+            .limit(1)
+            .get();
+
+        if (couponSnap.docs.isEmpty) {
+          throw Exception('Mã giảm giá không tồn tại.');
+        }
+
+        final couponDoc = couponSnap.docs.first;
+        final coupon = CouponModel.fromJson(couponDoc.data(), couponDoc.id);
+
+        // Kiểm tra coupon hợp lệ TRONG transaction
+        if (!coupon.isValid) {
+          throw Exception('Mã giảm giá đã hết hạn hoặc không còn hiệu lực.');
+        }
+        if (package.price < coupon.minOrderAmount) {
+          throw Exception(
+            'Đơn hàng chưa đủ điều kiện (tối thiểu ${coupon.minOrderAmount.toInt()} VNĐ).',
+          );
+        }
+        if (coupon.applicablePackageIds.isNotEmpty &&
+            !coupon.applicablePackageIds.contains(package.id)) {
+          throw Exception('Mã giảm giá không áp dụng cho gói này.');
+        }
+
+        // Kiểm tra lại số lượng còn lại (trong transaction, tránh race condition)
+        final currentUsed = couponDoc.data()['usedCount'] as int? ?? 0;
+        final totalQty = couponDoc.data()['totalQuantity'] as int? ?? -1;
+        if (totalQty != -1 && currentUsed >= totalQty) {
+          throw Exception('Mã giảm giá đã hết lượt sử dụng.');
+        }
+
+        // Tính discount thực tế
+        final actualDiscount = coupon.calculateDiscount(package.price,
+            packageId: package.id);
+
+        // Tăng usedCount trong cùng transaction
+        transaction.update(couponDoc.reference, {
+          'usedCount': FieldValue.increment(1),
+        });
+
+        // Tạo order document
+        final orderRef = _db.collection('orders').doc();
+        final order = OrderModel(
+          id: orderRef.id,
+          memberId: memberId,
+          packageId: package.id,
+          originalAmount: package.price,
+          discountAmount: actualDiscount,
+          finalAmount: package.price - actualDiscount,
+          couponCode: couponCode.toUpperCase().trim(),
+          paymentMethod: paymentMethod,
+          paymentNote: paymentNote ?? 'online-package-purchase',
+          status: OrderStatus.pending,
+          createdAt: DateTime.now(),
+        );
+        transaction.set(orderRef, order.toJson());
+        return order;
+      });
+    }
+
+    // Không có coupon: tạo order bình thường
     final order = OrderModel(
       id: '',
       memberId: memberId,
@@ -582,9 +720,21 @@ class FirestoreService {
         );
   }
 
+  /// Đăng ký tham gia lớp học nhóm. Fix #10: Kiểm tra đã đăng ký chưa.
+  /// Throw exception nếu đã trong danh sách enrolled hoặc waitlist.
   Future<void> joinClass(String classId, String memberId) async {
     final doc = await _db.collection('classes').doc(classId).get();
+    if (!doc.exists) throw Exception('Lớp học không tồn tại.');
+
     final groupClass = GroupClassModel.fromJson(doc.data()!, doc.id);
+
+    // Fix #10: Kiểm tra xem member đã đăng ký chưa
+    if (groupClass.enrolledMemberIds.contains(memberId)) {
+      throw Exception('Bạn đã đăng ký lớp học này rồi.');
+    }
+    if (groupClass.waitlistMemberIds.contains(memberId)) {
+      throw Exception('Bạn đang trong danh sách chờ của lớp học này.');
+    }
 
     if (groupClass.isFull) {
       await _db.collection('classes').doc(classId).update({
@@ -766,12 +916,37 @@ class FirestoreService {
     await _db.collection('lockers').add(locker.toJson());
   }
 
+  /// Gán tủ đồ cho hội viên. Fix #11: Kiểm tra hội viên chưa có tủ đang hoạt động.
   Future<void> assignLocker(
     String lockerId, {
     required String memberId,
     required String memberName,
     required int durationDays,
   }) async {
+    // Fix #11: Kiểm tra member đã có tủ đang hoạt động chưa
+    final existingLockers = await _db
+        .collection('lockers')
+        .where('assignedMemberId', isEqualTo: memberId)
+        .where('status', isEqualTo: LockerStatus.assigned.name)
+        .get();
+
+    if (existingLockers.docs.isNotEmpty) {
+      // Nếu tủ hiện tại đã hết hạn thì cho phép gán tủ mới
+      final hasActiveLocker = existingLockers.docs.any((doc) {
+        final expiryTs = doc.data()['expiryDate'];
+        if (expiryTs == null) return true;
+        final expiry = (expiryTs as Timestamp).toDate();
+        return expiry.isAfter(DateTime.now()); // Còn hạn
+      });
+
+      if (hasActiveLocker) {
+        throw Exception(
+          'Hội viên này đã có tủ đồ đang sử dụng. '  
+          'Vui lòng trả tủ cũ trước khi thuê tủ mới.',
+        );
+      }
+    }
+
     final now = DateTime.now();
     await _db.collection('lockers').doc(lockerId).update({
       'status': LockerStatus.assigned.name,
@@ -811,12 +986,15 @@ class FirestoreService {
     return _db
         .collection('pt_sessions')
         .where('trainerId', isEqualTo: trainerId)
-        .orderBy('sessionDate', descending: true)
         .snapshots()
         .map(
-          (snap) => snap.docs
-              .map((d) => PtSessionModel.fromJson(d.data(), d.id))
-              .toList(),
+          (snap) {
+            final list = snap.docs
+                .map((d) => PtSessionModel.fromJson(d.data(), d.id))
+                .toList();
+            list.sort((a, b) => b.sessionDate.compareTo(a.sessionDate));
+            return list;
+          },
         );
   }
 
@@ -824,12 +1002,15 @@ class FirestoreService {
     return _db
         .collection('pt_sessions')
         .where('memberId', isEqualTo: memberId)
-        .orderBy('sessionDate', descending: true)
         .snapshots()
         .map(
-          (snap) => snap.docs
-              .map((d) => PtSessionModel.fromJson(d.data(), d.id))
-              .toList(),
+          (snap) {
+            final list = snap.docs
+                .map((d) => PtSessionModel.fromJson(d.data(), d.id))
+                .toList();
+            list.sort((a, b) => b.sessionDate.compareTo(a.sessionDate));
+            return list;
+          },
         );
   }
 
@@ -888,22 +1069,26 @@ class FirestoreService {
     final snap = await _db
         .collection('body_metrics')
         .where('memberId', isEqualTo: memberId)
-        .orderBy('date', descending: true)
-        .limit(1)
         .get();
     if (snap.docs.isEmpty) return null;
-    return BodyMetricModel.fromJson(snap.docs.first.data(), snap.docs.first.id);
+    // Sort phía client, lấy bản ghi mới nhất
+    final list = snap.docs
+        .map((d) => BodyMetricModel.fromJson(d.data(), d.id))
+        .toList()
+      ..sort((a, b) => b.date.compareTo(a.date));
+    return list.first;
   }
 
   Future<List<BodyMetricModel>> getMemberMetrics(String memberId) async {
     final snap = await _db
         .collection('body_metrics')
         .where('memberId', isEqualTo: memberId)
-        .orderBy('date', descending: true)
         .get();
-    return snap.docs
+    final list = snap.docs
         .map((d) => BodyMetricModel.fromJson(d.data(), d.id))
-        .toList();
+        .toList()
+      ..sort((a, b) => b.date.compareTo(a.date));
+    return list;
   }
 
   // ==================== STAFF ATTENDANCE ====================
@@ -912,12 +1097,15 @@ class FirestoreService {
     return _db
         .collection('staff_attendance')
         .where('userId', isEqualTo: userId)
-        .orderBy('clockInAt', descending: true)
         .snapshots()
         .map(
-          (snap) => snap.docs
-              .map((d) => StaffAttendanceModel.fromJson(d.data(), d.id))
-              .toList(),
+          (snap) {
+            final list = snap.docs
+                .map((d) => StaffAttendanceModel.fromJson(d.data(), d.id))
+                .toList();
+            list.sort((a, b) => b.clockInAt.compareTo(a.clockInAt));
+            return list;
+          },
         );
   }
 

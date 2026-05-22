@@ -151,7 +151,7 @@ class AuthService {
       email: firebaseUser.email ?? '',
       phone: firebaseUser.phoneNumber ?? '',
       avatar: firebaseUser.photoURL,
-      role: UserRole.admin, // Default admin cho tài khoản tạo thủ công
+      role: UserRole.member, // Default member - admin phải được cấp quyền thủ công
       createdAt: DateTime.now(),
     );
 

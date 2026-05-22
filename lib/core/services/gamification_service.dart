@@ -48,6 +48,7 @@ class GamificationService {
   }
 
   /// Ghi nhận workout và cập nhật XP, streak
+  /// Fix #5: Sửa công thức tính totalXp – cộng dồn qua từng level thay vì nhân đơn giản.
   Future<Map<String, dynamic>> logWorkout({
     required String memberId,
     required String workoutType,
@@ -72,27 +73,28 @@ class GamificationService {
 
       int newStreak = progress.currentStreak;
       if (daysDiff == 1) {
-        // Tiếp tục streak
         newStreak++;
       } else if (daysDiff > 1) {
-        // Mất streak
         newStreak = 1;
-      } else if (daysDiff == 0) {
-        // Cùng ngày, không tăng streak nhưng vẫn được XP
       }
+      // daysDiff == 0: cùng ngày, không tăng streak nhưng vẫn được XP
 
       // Bonus XP cho streak
       if (newStreak >= 7) xpEarned += 30;
       if (newStreak >= 30) xpEarned += 100;
 
-      // Tính level mới
-      final newXp = progress.xp + xpEarned;
-      final newTotalXp = (progress.level - 1) * progress.xpToNextLevel + newXp;
-      final newLevel = MemberProgress.calculateLevelFromXp(newTotalXp);
+      // Fix #5: Tính totalXp thực sự bằng cách cộng dồn XP qua từng level.
+      // totalPoints là tổng XP tích lũy từ đầu, dùng để tính level chính xác.
+      final newTotalPoints = progress.totalPoints + xpEarned;
+      final newLevel = MemberProgress.calculateLevelFromXp(newTotalPoints);
       final xpForNextLevel = MemberProgress.calculateXpForLevel(newLevel);
-      final xpInCurrentLevel = newXp >= xpForNextLevel
-          ? newXp - xpForNextLevel
-          : newXp;
+
+      // XP hiện tại trong level này = tổng XP trừ XP cỗng dồn của các level trước
+      int xpOfPreviousLevels = 0;
+      for (int lvl = 1; lvl < newLevel; lvl++) {
+        xpOfPreviousLevels += MemberProgress.calculateXpForLevel(lvl);
+      }
+      final xpInCurrentLevel = newTotalPoints - xpOfPreviousLevels;
 
       // Cập nhật progress
       final updatedProgress = {
@@ -104,7 +106,9 @@ class GamificationService {
         'longestStreak': newStreak > progress.longestStreak
             ? newStreak
             : progress.longestStreak,
-        'totalPoints': progress.totalPoints + xpEarned,
+        'totalPoints': newTotalPoints,
+        // weeklyPoints dùng cho leaderboard tuần (Fix #9)
+        'weeklyPoints': FieldValue.increment(xpEarned),
         'lastWorkoutDate': Timestamp.fromDate(now),
         'stats.total_duration':
             (progress.stats['total_duration'] ?? 0) + durationMinutes,
@@ -193,36 +197,64 @@ class GamificationService {
 
   // ==================== LEADERBOARD ====================
 
-  /// Lấy bảng xếp hạng theo tuần
+  /// Bảng xếp hạng theo tuần (7 ngày gần nhất - rolling window).
+  /// Fix #9: Dùng weeklyPoints (tích lũy từ workout_logs trong 7 ngày)
+  /// thay vì totalPoints all-time. weeklyPoints được reset mỗi tuần.
   Future<List<LeaderboardEntry>> getWeeklyLeaderboard({int limit = 50}) async {
     try {
-      final snapshot = await _db
-          .collection('member_progress')
-          .orderBy('totalPoints', descending: true)
-          .limit(limit)
+      // Tính điểm XP từng member trong 7 ngày qua từ workout_logs
+      final weekAgo = DateTime.now().subtract(const Duration(days: 7));
+      final workoutSnap = await _db
+          .collection('workout_logs')
+          .where('date', isGreaterThanOrEqualTo: Timestamp.fromDate(weekAgo))
           .get();
+
+      // Tổng hợp XP theo memberId
+      final Map<String, int> weeklyXpMap = {};
+      for (final doc in workoutSnap.docs) {
+        final data = doc.data();
+        final memberId = data['memberId'] as String? ?? '';
+        final xp = (data['xpEarned'] ?? 0) as int;
+        if (memberId.isNotEmpty) {
+          weeklyXpMap[memberId] = (weeklyXpMap[memberId] ?? 0) + xp;
+        }
+      }
+
+      if (weeklyXpMap.isEmpty) return [];
+
+      // Sắp xếp theo điểm tuần giảm dần
+      final sortedEntries = weeklyXpMap.entries.toList()
+        ..sort((a, b) => b.value.compareTo(a.value));
+      final topEntries = sortedEntries.take(limit).toList();
 
       final entries = <LeaderboardEntry>[];
       int rank = 1;
 
-      for (final doc in snapshot.docs) {
-        final data = doc.data();
-        // Lấy thông tin member
-        final memberDoc = await _db.collection('members').doc(doc.id).get();
-        final memberData = memberDoc.data();
-        final memberName = memberDoc.exists && memberData != null
-            ? (memberData['name'] as String?) ?? 'Unknown'
+      for (final entry in topEntries) {
+        final memberId = entry.key;
+        final weeklyPoints = entry.value;
+
+        // Lấy thông tin member và progress
+        final memberDoc = await _db.collection('members').doc(memberId).get();
+        final progressDoc = await _db
+            .collection('member_progress')
+            .doc(memberId)
+            .get();
+
+        final memberName = memberDoc.exists
+            ? (memberDoc.data()?['name'] as String?) ?? 'Unknown'
             : 'Unknown';
+        final progressData = progressDoc.data();
 
         entries.add(
           LeaderboardEntry(
-            memberId: doc.id,
+            memberId: memberId,
             memberName: memberName,
             rank: rank++,
-            points: data['totalPoints'] ?? 0,
-            level: data['level'] ?? 1,
-            workouts: data['totalWorkouts'] ?? 0,
-            streak: data['currentStreak'] ?? 0,
+            points: weeklyPoints, // Điểm trong tuần
+            level: progressData?['level'] ?? 1,
+            workouts: progressData?['totalWorkouts'] ?? 0,
+            streak: progressData?['currentStreak'] ?? 0,
           ),
         );
       }

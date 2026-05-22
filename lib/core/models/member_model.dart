@@ -41,7 +41,10 @@ class MemberModel {
     this.branchId = 'main',
   });
 
-  /// Dynamic status computation based on expiry date
+  /// Trạng thái tính toán dựa trên ngày hết hạn (dùng cho UI & check-in)
+  /// Lưu ý: currentStatus khác với status (DB enum).
+  /// - status (DB): pending | active | paused | frozen  ← lưu trong Firestore
+  /// - currentStatus (computed): thêm 'expired' và 'expiring_soon' dựa trên packageExpiry
   String get currentStatus {
     if (status == MemberStatus.active && packageExpiry != null) {
       final now = DateTime.now();
@@ -55,6 +58,10 @@ class MemberModel {
     }
     return status.name; // 'pending', 'active', 'paused', 'frozen'
   }
+
+  /// Kiểm tra DB status có phải active không (dùng cho pause/unfreeze logic)
+  /// Khác với isActive (computed), isDbActive không phụ thuộc vào expiry date
+  bool get isDbActive => status == MemberStatus.active;
 
   String get statusLabel {
     final s = currentStatus;

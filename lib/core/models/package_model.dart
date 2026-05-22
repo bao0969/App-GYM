@@ -27,6 +27,13 @@ class PackageModel {
     this.color,
   });
 
+  /// Gói có tính theo buổi (session/PT) hay không?
+  /// Chỉ gói session/pt/groupClass mới nên trừ sessionsRemaining khi dùng.
+  bool get isSessionBased =>
+      type == PackageType.session ||
+      type == PackageType.pt ||
+      type == PackageType.groupClass;
+
   String get durationLabel {
     if (type == PackageType.session || type == PackageType.groupClass) {
       return '$sessionCount buoi';
