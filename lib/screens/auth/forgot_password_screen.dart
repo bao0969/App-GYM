@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
 import '../../providers/auth_provider.dart';
-import '../../widgets/common/gradient_button.dart';
 import '../../widgets/common/custom_text_field.dart';
+import '../../widgets/common/gradient_button.dart';
 
 class ForgotPasswordScreen extends StatefulWidget {
   const ForgotPasswordScreen({super.key});
@@ -27,28 +28,35 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
     if (_emailCtrl.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Vui lòng nhập email'),
+          content: Text('Vui long nhap email'),
           backgroundColor: AppColors.error,
         ),
       );
       return;
     }
+
     setState(() => _isLoading = true);
     final auth = context.read<AuthProvider>();
-    final ok = await auth.sendPasswordReset(_emailCtrl.text);
-    if (mounted) {
-      setState(() {
-        _isLoading = false;
-        if (ok) _emailSent = true;
-      });
-      if (!ok && auth.error != null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(auth.error!),
-            backgroundColor: AppColors.error,
-          ),
-        );
+    final ok = await auth.sendPasswordReset(_emailCtrl.text.trim());
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _isLoading = false;
+      if (ok) {
+        _emailSent = true;
       }
+    });
+
+    if (!ok && auth.error != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(auth.error!),
+          backgroundColor: AppColors.error,
+        ),
+      );
     }
   }
 
@@ -60,9 +68,9 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
         backgroundColor: Colors.transparent,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_ios_rounded),
-          onPressed: () => Navigator.pop(context),
+          onPressed: () => context.pop(),
         ),
-        title: const Text('Quên Mật Khẩu'),
+        title: const Text('Quen Mat Khau'),
       ),
       body: SafeArea(
         child: Padding(
@@ -86,7 +94,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                 ),
                 const SizedBox(height: 24),
                 const Text(
-                  'Đặt Lại Mật Khẩu',
+                  'Dat Lai Mat Khau',
                   style: TextStyle(
                     color: AppColors.textPrimary,
                     fontSize: 24,
@@ -95,7 +103,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                 ),
                 const SizedBox(height: 8),
                 const Text(
-                  'Nhập email đăng ký của bạn. Chúng tôi sẽ gửi link đặt lại mật khẩu.',
+                  'Nhap email dang ky cua ban. Chung toi se gui link dat lai mat khau.',
                   style: TextStyle(
                     color: AppColors.textSecondary,
                     fontSize: 14,
@@ -116,7 +124,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                 ),
                 const SizedBox(height: 28),
                 GradientButton(
-                  text: 'Gửi Link Đặt Lại',
+                  text: 'Gui Link Dat Lai',
                   onPressed: _sendReset,
                   isLoading: _isLoading,
                   icon: const Icon(
@@ -126,7 +134,6 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                   ),
                 ),
               ] else ...[
-                // Success state
                 Expanded(
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
@@ -153,7 +160,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                       ),
                       const SizedBox(height: 32),
                       const Text(
-                        'Email Đã Gửi!',
+                        'Email Da Gui!',
                         style: TextStyle(
                           color: AppColors.textPrimary,
                           fontSize: 26,
@@ -162,7 +169,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                       ),
                       const SizedBox(height: 12),
                       Text(
-                        'Kiểm tra hộp thư của\n${_emailCtrl.text}',
+                        'Kiem tra hop thu cua\n${_emailCtrl.text}',
                         textAlign: TextAlign.center,
                         style: const TextStyle(
                           color: AppColors.textSecondary,
@@ -172,8 +179,8 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                       ),
                       const SizedBox(height: 40),
                       GradientButton(
-                        text: 'Quay Lại Đăng Nhập',
-                        onPressed: () => Navigator.pop(context),
+                        text: 'Quay Lai Dang Nhap',
+                        onPressed: () => context.pop(),
                         gradient: AppColors.greenGradient,
                       ),
                     ],

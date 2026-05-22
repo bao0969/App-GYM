@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
 import '../../providers/auth_provider.dart';
@@ -78,51 +79,60 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen>
   String get _otpValue => _controllers.map((c) => c.text).join();
 
   Future<void> _verify() async {
-    final otp = _otpValue;
-    if (otp.length < 6) {
-      _showSnack('Vui lòng nhập đủ 6 chữ số', AppColors.error);
+    if (_otpValue.length < 6) {
+      _showSnack('Vui long nhap du 6 chu so', AppColors.error);
       return;
     }
-    if (_isLoading) return;
+    if (_isLoading) {
+      return;
+    }
 
     setState(() => _isLoading = true);
     final auth = context.read<AuthProvider>();
-    final result = await auth.verifyOtp(otp);
+    final result = await auth.verifyOtp(_otpValue);
 
-    if (!mounted) return;
+    if (!mounted) {
+      return;
+    }
+
     setState(() => _isLoading = false);
-
     switch (result) {
       case OtpVerifyResult.success:
-        // AuthWrapper tự điều hướng theo role
         break;
       case OtpVerifyResult.invalid:
-        _showSnack(auth.error ?? 'Mã OTP không đúng', AppColors.error);
+        _showSnack(auth.error ?? 'Ma OTP khong dung', AppColors.error);
         _clearOtp();
         break;
       case OtpVerifyResult.expired:
-        _showSnack(auth.error ?? 'Mã OTP đã hết hạn', AppColors.warning);
+        _showSnack(auth.error ?? 'Ma OTP da het han', AppColors.warning);
         _clearOtp();
         break;
       case OtpVerifyResult.failed:
-        _showSnack(auth.error ?? 'Xác thực thất bại', AppColors.error);
+        _showSnack(auth.error ?? 'Xac thuc that bai', AppColors.error);
         break;
     }
   }
 
   Future<void> _resend() async {
-    if (_countdown > 0 || _isResending) return;
+    if (_countdown > 0 || _isResending) {
+      return;
+    }
+
     setState(() => _isResending = true);
     final auth = context.read<AuthProvider>();
     final ok = await auth.resendOtp();
-    if (!mounted) return;
+
+    if (!mounted) {
+      return;
+    }
+
     setState(() => _isResending = false);
     if (ok) {
-      _showSnack('Đã gửi lại mã OTP về ${widget.email}', AppColors.success);
+      _showSnack('Da gui lai ma OTP ve ${widget.email}', AppColors.success);
       _startCountdown();
       _clearOtp();
     } else {
-      _showSnack('Không thể gửi lại. Thử lại sau.', AppColors.error);
+      _showSnack('Khong the gui lai. Thu lai sau.', AppColors.error);
     }
   }
 
@@ -156,7 +166,7 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen>
             Icons.arrow_back_ios_rounded,
             color: AppColors.textPrimary,
           ),
-          onPressed: () => Navigator.pop(context),
+          onPressed: () => context.pop(),
         ),
       ),
       body: SafeArea(
@@ -170,8 +180,6 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen>
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
                   const SizedBox(height: 20),
-
-                  // ── Icon ─────────────────────────────────────────────────
                   Container(
                     width: 90,
                     height: 90,
@@ -193,9 +201,8 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen>
                     ),
                   ),
                   const SizedBox(height: 28),
-
                   const Text(
-                    'Xác Thực Email',
+                    'Xac Thuc Email',
                     style: TextStyle(
                       color: AppColors.textPrimary,
                       fontSize: 26,
@@ -204,22 +211,22 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen>
                   ),
                   const SizedBox(height: 10),
                   const Text(
-                    'Nhập mã OTP 6 chữ số đã gửi đến',
+                    'Nhap ma OTP 6 chu so da gui den',
+                    textAlign: TextAlign.center,
                     style: TextStyle(
                       color: AppColors.textSecondary,
                       fontSize: 14,
                     ),
-                    textAlign: TextAlign.center,
                   ),
                   const SizedBox(height: 4),
                   Text(
                     widget.email,
+                    textAlign: TextAlign.center,
                     style: const TextStyle(
                       color: AppColors.primary,
                       fontSize: 14,
                       fontWeight: FontWeight.w700,
                     ),
-                    textAlign: TextAlign.center,
                   ),
                   const SizedBox(height: 10),
                   Container(
@@ -244,7 +251,7 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen>
                         ),
                         const SizedBox(width: 6),
                         Text(
-                          'Mã có hiệu lực trong 10 phút',
+                          'Ma co hieu luc trong 10 phut',
                           style: TextStyle(
                             color: AppColors.accent.withValues(alpha: 0.9),
                             fontSize: 12,
@@ -254,15 +261,11 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen>
                     ),
                   ),
                   const SizedBox(height: 40),
-
-                  // ── OTP Input boxes ───────────────────────────────────────
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: List.generate(6, (i) => _buildOtpBox(i)),
+                    children: List.generate(6, _buildOtpBox),
                   ),
                   const SizedBox(height: 40),
-
-                  // ── Verify button ─────────────────────────────────────────
                   SizedBox(
                     width: double.infinity,
                     height: 54,
@@ -306,7 +309,7 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen>
                                   ),
                                   SizedBox(width: 8),
                                   Text(
-                                    'Xác Thực',
+                                    'Xac Thuc',
                                     style: TextStyle(
                                       color: Colors.white,
                                       fontSize: 16,
@@ -319,13 +322,11 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen>
                     ),
                   ),
                   const SizedBox(height: 24),
-
-                  // ── Resend ────────────────────────────────────────────────
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       const Text(
-                        'Không nhận được mã? ',
+                        'Khong nhan duoc ma? ',
                         style: TextStyle(
                           color: AppColors.textSecondary,
                           fontSize: 14,
@@ -344,8 +345,8 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen>
                               )
                             : Text(
                                 _countdown > 0
-                                    ? 'Gửi lại (${_countdown}s)'
-                                    : 'Gửi lại',
+                                    ? 'Gui lai (${_countdown}s)'
+                                    : 'Gui lai',
                                 style: TextStyle(
                                   color: _countdown > 0
                                       ? AppColors.textHint
@@ -409,7 +410,6 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen>
           } else if (val.isEmpty && index > 0) {
             _focusNodes[index - 1].requestFocus();
           }
-          // Auto-verify khi nhập đủ 6 số
           if (_otpValue.length == 6) {
             _verify();
           }

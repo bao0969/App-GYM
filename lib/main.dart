@@ -1,19 +1,15 @@
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import 'app/app_router.dart';
+import 'app/app_startup.dart';
 import 'core/constants/app_theme.dart';
 import 'firebase_options.dart';
 import 'providers/auth_provider.dart' as gym_auth;
-import 'core/models/user_model.dart';
-import 'core/services/seed_service.dart';
-import 'screens/auth/login_screen.dart';
-import 'screens/admin/admin_dashboard_screen.dart';
-import 'screens/staff/staff_dashboard_screen.dart';
-import 'screens/trainer/trainer_dashboard_screen.dart';
-import 'screens/member/member_dashboard_screen.dart';
 
-void main() async {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
@@ -22,48 +18,57 @@ void main() async {
     ),
   );
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-
-  // Seed admin account và dữ liệu mẫu nếu chưa có
-  await SeedService().seedAdminIfNeeded();
-  await SeedService().seedSampleData(); // Chỉ tạo nếu chưa có (không xóa)
-  await SeedService().migrateV1ToV2();
+  await AppStartup.initialize();
 
   runApp(const GymSyncApp());
 }
 
-class GymSyncApp extends StatelessWidget {
+class GymSyncApp extends StatefulWidget {
   const GymSyncApp({super.key});
+
+  @override
+  State<GymSyncApp> createState() => _GymSyncAppState();
+}
+
+class _GymSyncAppState extends State<GymSyncApp> {
+  late final gym_auth.AuthProvider _authProvider;
+  late final GoRouter router;
+
+  @override
+  void initState() {
+    super.initState();
+    _authProvider = gym_auth.AuthProvider();
+    router = AppRouter.createRouter(_authProvider);
+  }
+
+  @override
+  void dispose() {
+    _authProvider.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     return MultiProvider(
       providers: [
-        ChangeNotifierProvider(create: (_) => gym_auth.AuthProvider()),
+        ChangeNotifierProvider.value(value: _authProvider),
       ],
-      child: MaterialApp(
-        title: 'GymSync – Smart Gym Management',
-        debugShowCheckedModeBanner: false,
-        theme: AppTheme.darkTheme,
-        home: Consumer<gym_auth.AuthProvider>(
-          builder: (context, auth, _) {
-            if (auth.isLoading) {
-              return const _SplashScreen();
-            }
-            if (auth.user == null) {
-              return const LoginScreen();
-            }
-            switch (auth.user!.role) {
-              case UserRole.admin:
-                return const AdminDashboardScreen();
-              case UserRole.staff:
-                return const StaffDashboardScreen();
-              case UserRole.trainer:
-                return const TrainerDashboardScreen();
-              case UserRole.member:
-                return const MemberDashboardScreen();
-            }
-          },
-        ),
+      child: ListenableBuilder(
+        listenable: _authProvider,
+        builder: (context, _) {
+          return MaterialApp.router(
+            title: 'GymSync - Smart Gym Management',
+            debugShowCheckedModeBanner: false,
+            theme: AppTheme.darkTheme,
+            routerConfig: router,
+            builder: (context, child) {
+              if (_authProvider.isLoading) {
+                return const _SplashScreen();
+              }
+              return child ?? const SizedBox.shrink();
+            },
+          );
+        },
       ),
     );
   }
@@ -178,12 +183,12 @@ class _SplashScreenState extends State<_SplashScreen>
                       ),
                     ),
                     const SizedBox(height: 60),
-                    SizedBox(
+                    const SizedBox(
                       width: 36,
                       height: 36,
                       child: CircularProgressIndicator(
                         strokeWidth: 2.5,
-                        valueColor: const AlwaysStoppedAnimation<Color>(
+                        valueColor: AlwaysStoppedAnimation<Color>(
                           Color(0xFFFF6B35),
                         ),
                       ),

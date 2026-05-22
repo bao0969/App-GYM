@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'dart:async';
 import '../core/models/user_model.dart';
 import '../core/services/auth_service.dart';
 
@@ -7,6 +8,7 @@ enum AuthStatus { loading, authenticated, unauthenticated }
 
 class AuthProvider extends ChangeNotifier {
   final AuthService _authService = AuthService();
+  late final StreamSubscription<User?> _authSubscription;
 
   AuthStatus _status = AuthStatus.loading;
   UserModel? _user;
@@ -22,7 +24,13 @@ class AuthProvider extends ChangeNotifier {
   bool get isAuthenticated => _status == AuthStatus.authenticated;
 
   AuthProvider() {
-    _authService.authStateChanges.listen(_onAuthStateChanged);
+    _authSubscription = _authService.authStateChanges.listen(_onAuthStateChanged);
+  }
+
+  @override
+  void dispose() {
+    _authSubscription.cancel();
+    super.dispose();
   }
 
   Future<void> _onAuthStateChanged(User? firebaseUser) async {

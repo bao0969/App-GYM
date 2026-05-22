@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import '../../app/app_router.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_strings.dart';
 import '../../providers/auth_provider.dart';
-import '../../widgets/common/gradient_button.dart';
 import '../../widgets/common/custom_text_field.dart';
-import 'register_screen.dart';
-import 'forgot_password_screen.dart';
+import '../../widgets/common/gradient_button.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -50,15 +50,21 @@ class _LoginScreenState extends State<LoginScreen>
   }
 
   Future<void> _login() async {
-    if (!_formKey.currentState!.validate()) return;
+    if (!_formKey.currentState!.validate()) {
+      return;
+    }
+
     setState(() => _isLoading = true);
     final auth = context.read<AuthProvider>();
     final ok = await auth.signIn(_emailCtrl.text.trim(), _passCtrl.text);
-    if (mounted) {
-      setState(() => _isLoading = false);
-      if (!ok && auth.error != null) {
-        _showSnack(auth.error!, AppColors.error);
-      }
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() => _isLoading = false);
+    if (!ok && auth.error != null) {
+      _showSnack(auth.error!, AppColors.error);
     }
   }
 
@@ -80,7 +86,6 @@ class _LoginScreenState extends State<LoginScreen>
       body: AnnotatedRegion<SystemUiOverlayStyle>(
         value: SystemUiOverlayStyle.light,
         child: SafeArea(
-          // Không dùng SizedBox cố định height — để SingleChildScrollView tự co giãn
           child: FadeTransition(
             opacity: _fadeAnim,
             child: SlideTransition(
@@ -88,7 +93,6 @@ class _LoginScreenState extends State<LoginScreen>
               child: SingleChildScrollView(
                 padding: const EdgeInsets.symmetric(horizontal: 28),
                 child: ConstrainedBox(
-                  // Đảm bảo tối thiểu full height để căn giữa logo
                   constraints: BoxConstraints(
                     minHeight:
                         MediaQuery.of(context).size.height -
@@ -100,8 +104,6 @@ class _LoginScreenState extends State<LoginScreen>
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const SizedBox(height: 48),
-
-                        // ── Logo & Title ──────────────────────────────────
                         Center(
                           child: Column(
                             children: [
@@ -129,9 +131,10 @@ class _LoginScreenState extends State<LoginScreen>
                               ),
                               const SizedBox(height: 16),
                               ShaderMask(
-                                shaderCallback: (bounds) => AppColors
-                                    .primaryGradient
-                                    .createShader(bounds),
+                                shaderCallback: (bounds) =>
+                                    AppColors.primaryGradient.createShader(
+                                      bounds,
+                                    ),
                                 child: const Text(
                                   'GymSync',
                                   style: TextStyle(
@@ -155,9 +158,8 @@ class _LoginScreenState extends State<LoginScreen>
                           ),
                         ),
                         const SizedBox(height: 36),
-
                         const Text(
-                          'Đăng Nhập',
+                          'Dang Nhap',
                           style: TextStyle(
                             color: AppColors.textPrimary,
                             fontSize: 24,
@@ -166,15 +168,13 @@ class _LoginScreenState extends State<LoginScreen>
                         ),
                         const SizedBox(height: 4),
                         const Text(
-                          'Chào mừng bạn trở lại!',
+                          'Chao mung ban tro lai!',
                           style: TextStyle(
                             color: AppColors.textSecondary,
                             fontSize: 13,
                           ),
                         ),
                         const SizedBox(height: 24),
-
-                        // ── Form ──────────────────────────────────────────
                         Form(
                           key: _formKey,
                           child: Column(
@@ -190,18 +190,18 @@ class _LoginScreenState extends State<LoginScreen>
                                 ),
                                 validator: (v) {
                                   if (v == null || v.trim().isEmpty) {
-                                    return 'Vui lòng nhập email';
+                                    return 'Vui long nhap email';
                                   }
                                   if (!v.contains('@')) {
-                                    return 'Email không hợp lệ';
+                                    return 'Email khong hop le';
                                   }
                                   return null;
                                 },
                               ),
                               const SizedBox(height: 16),
                               CustomTextField(
-                                label: 'Mật Khẩu',
-                                hint: '••••••••',
+                                label: 'Mat Khau',
+                                hint: '........',
                                 controller: _passCtrl,
                                 isPassword: true,
                                 prefix: const Icon(
@@ -212,10 +212,10 @@ class _LoginScreenState extends State<LoginScreen>
                                 onFieldSubmitted: (_) => _login(),
                                 validator: (v) {
                                   if (v == null || v.isEmpty) {
-                                    return 'Vui lòng nhập mật khẩu';
+                                    return 'Vui long nhap mat khau';
                                   }
                                   if (v.length < 6) {
-                                    return 'Mật khẩu tối thiểu 6 ký tự';
+                                    return 'Mat khau toi thieu 6 ky tu';
                                   }
                                   return null;
                                 },
@@ -224,15 +224,10 @@ class _LoginScreenState extends State<LoginScreen>
                               Align(
                                 alignment: Alignment.centerRight,
                                 child: GestureDetector(
-                                  onTap: () => Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (_) =>
-                                          const ForgotPasswordScreen(),
-                                    ),
-                                  ),
+                                  onTap: () =>
+                                      context.push(AppRouter.forgotPassword),
                                   child: const Text(
-                                    'Quên mật khẩu?',
+                                    'Quen mat khau?',
                                     style: TextStyle(
                                       color: AppColors.primary,
                                       fontWeight: FontWeight.w600,
@@ -245,8 +240,6 @@ class _LoginScreenState extends State<LoginScreen>
                           ),
                         ),
                         const SizedBox(height: 24),
-
-                        // ── Login button ──────────────────────────────────
                         GradientButton(
                           text: AppStrings.login,
                           onPressed: _login,
@@ -258,28 +251,19 @@ class _LoginScreenState extends State<LoginScreen>
                           ),
                         ),
                         const SizedBox(height: 14),
-
-
-
-                        // ── Register link ─────────────────────────────────
                         Center(
                           child: GestureDetector(
-                            onTap: () => Navigator.pushReplacement(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => const RegisterScreen(),
-                              ),
-                            ),
+                            onTap: () => context.go(AppRouter.register),
                             child: RichText(
                               text: const TextSpan(
-                                text: 'Chưa có tài khoản? ',
+                                text: 'Chua co tai khoan? ',
                                 style: TextStyle(
                                   color: AppColors.textSecondary,
                                   fontSize: 14,
                                 ),
                                 children: [
                                   TextSpan(
-                                    text: 'Đăng Ký',
+                                    text: 'Dang Ky',
                                     style: TextStyle(
                                       color: AppColors.primary,
                                       fontWeight: FontWeight.w700,

@@ -5,13 +5,13 @@ class PackageModel {
   final String name;
   final PackageType type;
   final int durationDays;
-  final int sessionCount; // For session-based packages
+  final int sessionCount;
   final double price;
-  final double originalPrice; // For showing discounts
+  final double originalPrice;
   final String description;
   final List<String> features;
   final bool isActive;
-  final String? color; // for UI
+  final String? color;
 
   PackageModel({
     required this.id,
@@ -28,19 +28,29 @@ class PackageModel {
   });
 
   String get durationLabel {
-    if (type == PackageType.session || type == PackageType.pt || type == PackageType.groupClass) {
-      return '$sessionCount buổi';
+    if (type == PackageType.session || type == PackageType.groupClass) {
+      return '$sessionCount buoi';
     }
-    if (durationDays < 30) return '$durationDays ngày';
-    if (durationDays < 365) return '${(durationDays / 30).round()} tháng';
-    return '${(durationDays / 365).round()} năm';
+    if (type == PackageType.pt && sessionCount > 0) {
+      return '$sessionCount buoi PT';
+    }
+    if (durationDays % 365 == 0 && durationDays >= 365) {
+      return '${(durationDays / 365).round()} nam';
+    }
+    if (durationDays % 30 == 0 && durationDays >= 30) {
+      return '${(durationDays / 30).round()} thang';
+    }
+    if (durationDays % 7 == 0 && durationDays >= 7) {
+      return '${(durationDays / 7).round()} tuan';
+    }
+    return '$durationDays ngay';
   }
 
   String get priceLabel {
     if (price >= 1000000) {
-      return '${(price / 1000000).toStringAsFixed(1)}M VNĐ';
+      return '${(price / 1000000).toStringAsFixed(1)}M VND';
     }
-    return '${price.toInt()}K VNĐ';
+    return '${price.toInt()}K VND';
   }
 
   factory PackageModel.fromJson(Map<String, dynamic> json, String id) {
@@ -48,7 +58,7 @@ class PackageModel {
       id: id,
       name: json['name'] ?? '',
       type: PackageType.values.firstWhere(
-        (t) => t.name == json['type'],
+        (value) => value.name == json['type'],
         orElse: () => PackageType.time,
       ),
       durationDays: json['durationDays'] ?? 30,

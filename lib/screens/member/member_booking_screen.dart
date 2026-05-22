@@ -744,6 +744,10 @@ class _PTBookingFlowState extends State<_PTBookingFlow> {
     );
 
     await _db.addBooking(booking);
+    await _db.assignMemberToTrainer(
+      memberId: widget.member.id,
+      trainerId: _selectedTrainer!.id,
+    );
     if (mounted) {
       Navigator.pop(context);
       ScaffoldMessenger.of(context).showSnackBar(

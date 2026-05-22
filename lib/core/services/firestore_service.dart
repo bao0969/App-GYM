@@ -14,6 +14,8 @@ import '../models/product_model.dart';
 import '../models/sale_model.dart';
 import '../models/locker_model.dart';
 import '../models/pt_session_model.dart';
+import '../models/staff_attendance_model.dart';
+import '../models/work_shift_model.dart';
 
 class FirestoreService {
   final FirebaseFirestore _db = FirebaseFirestore.instance;
@@ -136,6 +138,58 @@ class FirestoreService {
 
   Future<void> updateTrainer(String id, Map<String, dynamic> data) async {
     await _db.collection('trainers').doc(id).update(data);
+  }
+
+  Future<void> assignMemberToTrainer({
+    required String memberId,
+    required String trainerId,
+  }) async {
+    final memberRef = _db.collection('members').doc(memberId);
+    final trainerRef = _db.collection('trainers').doc(trainerId);
+
+    final batch = _db.batch();
+    batch.update(memberRef, {'trainerId': trainerId});
+    batch.update(trainerRef, {
+      'studentIds': FieldValue.arrayUnion([memberId]),
+    });
+    await batch.commit();
+  }
+
+  Future<void> unassignMemberFromTrainer({
+    required String memberId,
+    required String trainerId,
+  }) async {
+    final memberRef = _db.collection('members').doc(memberId);
+    final trainerRef = _db.collection('trainers').doc(trainerId);
+
+    final batch = _db.batch();
+    batch.update(memberRef, {'trainerId': null});
+    batch.update(trainerRef, {
+      'studentIds': FieldValue.arrayRemove([memberId]),
+    });
+    await batch.commit();
+  }
+
+  Stream<List<MemberModel>> streamTrainerMembers(String trainerId) {
+    return _db
+        .collection('members')
+        .where('trainerId', isEqualTo: trainerId)
+        .orderBy('joinDate', descending: true)
+        .snapshots()
+        .map(
+          (snap) => snap.docs
+              .map((d) => MemberModel.fromJson(d.data(), d.id))
+              .toList(),
+        );
+  }
+
+  Future<List<MemberModel>> getTrainerMembers(String trainerId) async {
+    final snap = await _db
+        .collection('members')
+        .where('trainerId', isEqualTo: trainerId)
+        .orderBy('joinDate', descending: true)
+        .get();
+    return snap.docs.map((d) => MemberModel.fromJson(d.data(), d.id)).toList();
   }
 
   Future<void> deleteTrainer(String id) async {
@@ -347,6 +401,19 @@ class FirestoreService {
     return booking.copyWith(id: ref.id);
   }
 
+  Stream<List<BookingModel>> streamTrainerBookings(String trainerId) {
+    return _db
+        .collection('bookings')
+        .where('trainerId', isEqualTo: trainerId)
+        .orderBy('startTime', descending: false)
+        .snapshots()
+        .map(
+          (snap) => snap.docs
+              .map((d) => BookingModel.fromJson(d.data(), d.id))
+              .toList(),
+        );
+  }
+
   Stream<List<BookingModel>> streamMemberBookings(String memberId) {
     return _db
         .collection('bookings')
@@ -408,6 +475,43 @@ class FirestoreService {
     return OrderModel.fromJson(order.toJson(), ref.id);
   }
 
+  Stream<List<OrderModel>> streamMemberOrders(String memberId) {
+    return _db
+        .collection('orders')
+        .where('memberId', isEqualTo: memberId)
+        .orderBy('createdAt', descending: true)
+        .snapshots()
+        .map(
+          (snap) => snap.docs
+              .map((d) => OrderModel.fromJson(d.data(), d.id))
+              .toList(),
+        );
+  }
+
+  Future<OrderModel> createOnlinePackageOrder({
+    required String memberId,
+    required PackageModel package,
+    PaymentMethod paymentMethod = PaymentMethod.ewallet,
+    String? couponCode,
+    double discountAmount = 0,
+    String? paymentNote,
+  }) async {
+    final order = OrderModel(
+      id: '',
+      memberId: memberId,
+      packageId: package.id,
+      originalAmount: package.price,
+      discountAmount: discountAmount,
+      finalAmount: package.price - discountAmount,
+      couponCode: couponCode,
+      paymentMethod: paymentMethod,
+      paymentNote: paymentNote ?? 'online-package-purchase',
+      status: OrderStatus.pending,
+      createdAt: DateTime.now(),
+    );
+    return createOrder(order);
+  }
+
   Future<void> processPayment(String orderId) async {
     await _db.collection('orders').doc(orderId).update({
       'status': OrderStatus.paid.name,
@@ -429,6 +533,15 @@ class FirestoreService {
         );
       }
     }
+  }
+
+  Future<void> markOrderPaid(String orderId, {String? paymentNote}) async {
+    final updateData = <String, dynamic>{'status': OrderStatus.paid.name};
+    if (paymentNote != null && paymentNote.isNotEmpty) {
+      updateData['paymentNote'] = paymentNote;
+    }
+    await _db.collection('orders').doc(orderId).update(updateData);
+    await processPayment(orderId);
   }
 
   // ==================== BODY METRICS (V2) ====================
@@ -791,5 +904,56 @@ class FirestoreService {
     return snap.docs
         .map((d) => BodyMetricModel.fromJson(d.data(), d.id))
         .toList();
+  }
+
+  // ==================== STAFF ATTENDANCE ====================
+
+  Stream<List<StaffAttendanceModel>> streamAttendanceForUser(String userId) {
+    return _db
+        .collection('staff_attendance')
+        .where('userId', isEqualTo: userId)
+        .orderBy('clockInAt', descending: true)
+        .snapshots()
+        .map(
+          (snap) => snap.docs
+              .map((d) => StaffAttendanceModel.fromJson(d.data(), d.id))
+              .toList(),
+        );
+  }
+
+  Future<StaffAttendanceModel> clockInStaff(StaffAttendanceModel attendance) async {
+    final ref = await _db.collection('staff_attendance').add(attendance.toJson());
+    return StaffAttendanceModel.fromJson(attendance.toJson(), ref.id);
+  }
+
+  Future<void> clockOutStaff(String attendanceId, {String? note}) async {
+    final updateData = <String, dynamic>{
+      'clockOutAt': Timestamp.fromDate(DateTime.now()),
+      'status': AttendanceStatus.completed.name,
+    };
+    if (note != null) {
+      updateData['note'] = note;
+    }
+    await _db.collection('staff_attendance').doc(attendanceId).update(updateData);
+  }
+
+  // ==================== WORK SHIFTS ====================
+
+  Stream<List<WorkShiftModel>> streamShiftsForUser(String userId) {
+    return _db
+        .collection('work_shifts')
+        .where('userId', isEqualTo: userId)
+        .where('isPublished', isEqualTo: true)
+        .orderBy('startTime', descending: false)
+        .snapshots()
+        .map(
+          (snap) => snap.docs
+              .map((d) => WorkShiftModel.fromJson(d.data(), d.id))
+              .toList(),
+        );
+  }
+
+  Future<void> addWorkShift(WorkShiftModel shift) async {
+    await _db.collection('work_shifts').add(shift.toJson());
   }
 }
