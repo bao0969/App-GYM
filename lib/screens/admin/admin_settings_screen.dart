@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../core/constants/app_colors.dart';
+import '../../core/services/firestore_service.dart';
 import '../../providers/auth_provider.dart';
 import 'admin_notifications_screen.dart';
 import 'admin_equipment_screen.dart';
@@ -285,6 +287,79 @@ class AdminSettingsScreen extends StatelessWidget {
                     builder: (_) => const AdminReportsScreen(),
                   ),
                 ),
+              ),
+              _Tile(
+                icon: Icons.delete_forever_rounded,
+                label: 'Xóa Dữ Liệu Test',
+                subtitle: 'Xóa toàn bộ check-in hôm nay',
+                color: AppColors.error,
+                onTap: () async {
+                  final confirm = await showDialog<bool>(
+                    context: context,
+                    builder: (ctx) => AlertDialog(
+                      backgroundColor: AppColors.surface,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      title: const Text(
+                        'Xác Nhận Xóa',
+                        style: TextStyle(
+                          color: AppColors.textPrimary,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      content: const Text(
+                        'Hành động này sẽ XÓA TOÀN BỘ lịch sử check-in của ngày hôm nay. Bạn có chắc chắn không?',
+                        style: TextStyle(color: AppColors.textSecondary),
+                      ),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(ctx, false),
+                          child: const Text(
+                            'Huỷ',
+                            style: TextStyle(color: AppColors.textSecondary),
+                          ),
+                        ),
+                        TextButton(
+                          onPressed: () => Navigator.pop(ctx, true),
+                          child: const Text(
+                            'Xóa Ngay',
+                            style: TextStyle(
+                              color: AppColors.error,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                  if (confirm == true && context.mounted) {
+                    try {
+                      final db = FirestoreService();
+                      final checkins = await db.getTodayCheckIns();
+                      for (var ci in checkins) {
+                        await FirebaseFirestore.instance.collection('checkins').doc(ci.id).delete();
+                      }
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('Đã xóa ${checkins.length} lượt check-in test.'),
+                            backgroundColor: AppColors.success,
+                          ),
+                        );
+                      }
+                    } catch (e) {
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('Lỗi: $e'),
+                            backgroundColor: AppColors.error,
+                          ),
+                        );
+                      }
+                    }
+                  }
+                },
               ),
               const SizedBox(height: 20),
 

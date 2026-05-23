@@ -14,7 +14,8 @@ class AdminCheckInWidget extends StatefulWidget {
   State<AdminCheckInWidget> createState() => _AdminCheckInWidgetState();
 }
 
-class _AdminCheckInWidgetState extends State<AdminCheckInWidget> {
+class _AdminCheckInWidgetState extends State<AdminCheckInWidget>
+    with SingleTickerProviderStateMixin {
   final FirestoreService _db = FirestoreService();
   final _qrCtrl = TextEditingController();
   final FocusNode _focusNode = FocusNode();
@@ -23,18 +24,26 @@ class _AdminCheckInWidgetState extends State<AdminCheckInWidget> {
   bool _isSuccess = false;
   bool _isLoading = false;
   bool _confirmed = false;
+  bool _isExpanded = false; // Compact by default
 
   List<MemberModel> _allMembers = [];
   List<MemberModel> _suggestions = [];
   List<CheckInModel> _todayCheckIns = [];
-  // ignore: unused_field
   bool _loadingMembers = true;
-  // ignore: unused_field
-  final bool _showManual = false;
+
+  late AnimationController _animCtrl;
+  late Animation<double> _chevronAnim;
 
   @override
   void initState() {
     super.initState();
+    _animCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 280),
+    );
+    _chevronAnim = Tween<double>(begin: 0, end: 0.5).animate(
+      CurvedAnimation(parent: _animCtrl, curve: Curves.easeInOut),
+    );
     _loadData();
   }
 
@@ -47,6 +56,15 @@ class _AdminCheckInWidgetState extends State<AdminCheckInWidget> {
         _todayCheckIns = checkins;
         _loadingMembers = false;
       });
+    }
+  }
+
+  void _toggleExpanded() {
+    setState(() => _isExpanded = !_isExpanded);
+    if (_isExpanded) {
+      _animCtrl.forward();
+    } else {
+      _animCtrl.reverse();
     }
   }
 
@@ -73,6 +91,7 @@ class _AdminCheckInWidgetState extends State<AdminCheckInWidget> {
   void dispose() {
     _qrCtrl.dispose();
     _focusNode.dispose();
+    _animCtrl.dispose();
     super.dispose();
   }
 
@@ -90,7 +109,6 @@ class _AdminCheckInWidgetState extends State<AdminCheckInWidget> {
     member ??= await _db.getMemberByUserId(code);
 
     if (member == null) {
-      // Try name search
       final lower = code.toLowerCase();
       member = _allMembers
           .where((m) => m.name.toLowerCase().contains(lower))
@@ -144,8 +162,9 @@ class _AdminCheckInWidgetState extends State<AdminCheckInWidget> {
       return;
     }
 
-    if ((_foundMember!.packageName?.toLowerCase().contains('buổi') == true || 
-         _foundMember!.packageName?.toLowerCase().contains('session') == true) && 
+    if ((_foundMember!.packageName?.toLowerCase().contains('buổi') == true ||
+            _foundMember!.packageName?.toLowerCase().contains('session') ==
+                true) &&
         _foundMember!.sessionsRemaining <= 0) {
       setState(() {
         _message =
@@ -230,7 +249,6 @@ class _AdminCheckInWidgetState extends State<AdminCheckInWidget> {
     );
     await _db.addCheckIn(ci);
 
-    // Add to local list immediately
     setState(() {
       _message =
           expiryWarning ?? '✅ Check-in thành công cho ${_foundMember!.name}!';
@@ -240,6 +258,11 @@ class _AdminCheckInWidgetState extends State<AdminCheckInWidget> {
       _todayCheckIns.insert(0, ci);
       _qrCtrl.clear();
       _focusNode.requestFocus();
+      // Auto-expand to show history after check-in
+      if (!_isExpanded) {
+        _isExpanded = true;
+        _animCtrl.forward();
+      }
     });
   }
 
@@ -331,361 +354,298 @@ class _AdminCheckInWidgetState extends State<AdminCheckInWidget> {
         color: AppColors.card,
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: AppColors.accent.withValues(alpha: 0.25)),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.accent.withValues(alpha: 0.08),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          // ─── Header ─────────────────────────────────────────────────────────
-          Container(
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
-            decoration: BoxDecoration(
-              color: AppColors.accent.withValues(alpha: 0.07),
-              borderRadius: const BorderRadius.vertical(
-                top: Radius.circular(20),
-              ),
-            ),
-            child: Row(
-              children: [
-                Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    color: AppColors.accent.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: const Icon(
-                    Icons.qr_code_scanner_rounded,
-                    color: AppColors.accent,
-                    size: 22,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                const Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Check-in Hội Viên',
-                        style: TextStyle(
-                          color: AppColors.textPrimary,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                      Text(
-                        'Quét thẻ QR hoặc tìm kiếm tên hội viên',
-                        style: TextStyle(
-                          color: AppColors.textHint,
-                          fontSize: 11,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                // Today count badge
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 5,
-                  ),
-                  decoration: BoxDecoration(
-                    color: AppColors.success.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(
-                      color: AppColors.success.withValues(alpha: 0.3),
-                    ),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(
-                        Icons.check_circle_rounded,
-                        color: AppColors.success,
-                        size: 13,
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        '${_todayCheckIns.length} hôm nay',
-                        style: const TextStyle(
-                          color: AppColors.success,
-                          fontSize: 11,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
+          // ─── Compact Header (always visible) ────────────────────────────
+          _buildHeader(),
 
-          // ─── Search / Scan input ──────────────────────────────────────────
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
-            child: Column(
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: _qrCtrl,
-                        focusNode: _focusNode,
-                        autofocus: true,
-                        style: const TextStyle(color: AppColors.textPrimary),
-                        onChanged: (val) => _filterSuggestions(val.trim()),
-                        decoration: InputDecoration(
-                          hintText:
-                              'Quét QR bằng súng hoặc gõ tên / SĐT / mã...',
-                          hintStyle: const TextStyle(
-                            color: AppColors.textHint,
-                            fontSize: 12,
-                          ),
-                          prefixIcon: const Icon(
-                            Icons.search_rounded,
-                            color: AppColors.textHint,
-                            size: 20,
-                          ),
-                          filled: true,
-                          fillColor: AppColors.surfaceLight,
-                          isDense: true,
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                            borderSide: BorderSide.none,
-                          ),
-                          focusedBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                            borderSide: const BorderSide(
-                              color: AppColors.accent,
-                              width: 1.5,
-                            ),
-                          ),
-                        ),
-                        onSubmitted: (val) => _searchMember(val.trim()),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    // Nút Bật Camera
-                    GestureDetector(
-                      onTap: _isLoading ? null : _openCameraScanner,
-                      child: Container(
-                        width: 44,
-                        height: 44,
-                        decoration: BoxDecoration(
-                          color: AppColors.surfaceLight,
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(
-                            color: AppColors.accent.withValues(alpha: 0.3),
-                          ),
-                        ),
-                        child: const Icon(
-                          Icons.camera_alt_rounded,
-                          color: AppColors.accent,
-                          size: 20,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    GestureDetector(
-                      onTap: _isLoading
-                          ? null
-                          : () => _searchMember(_qrCtrl.text.trim()),
-                      child: Container(
-                        width: 44,
-                        height: 44,
-                        decoration: BoxDecoration(
-                          color: AppColors.accent,
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: _isLoading
-                            ? const Padding(
-                                padding: EdgeInsets.all(12),
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Colors.white,
-                                ),
-                              )
-                            : const Icon(
-                                Icons.send_rounded,
-                                color: Colors.white,
-                                size: 18,
-                              ),
-                      ),
-                    ),
-                  ],
-                ),
+          // ─── Search / Scan (always visible) ──────────────────────────────
+          _buildSearchBar(),
 
-                // ─── Autocomplete suggestions ─────────────────────────────
-                if (_suggestions.isNotEmpty)
-                  Container(
-                    margin: const EdgeInsets.only(top: 4),
-                    decoration: BoxDecoration(
-                      color: AppColors.surfaceLight,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: AppColors.accent.withValues(alpha: 0.2),
-                      ),
-                    ),
-                    child: Column(
-                      children: _suggestions
-                          .map(
-                            (m) => InkWell(
-                              onTap: () => _selectMemberDirectly(m),
-                              child: Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 14,
-                                  vertical: 10,
-                                ),
-                                child: Row(
-                                  children: [
-                                    CircleAvatar(
-                                      radius: 14,
-                                      backgroundColor: m.isActive
-                                          ? AppColors.success
-                                          : AppColors.error,
-                                      child: Text(
-                                        m.name[0].toUpperCase(),
-                                        style: const TextStyle(
-                                          color: Colors.white,
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                    ),
-                                    const SizedBox(width: 10),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            m.name,
-                                            style: const TextStyle(
-                                              color: AppColors.textPrimary,
-                                              fontWeight: FontWeight.w600,
-                                              fontSize: 13,
-                                            ),
-                                          ),
-                                          Text(
-                                            m.phone,
-                                            style: const TextStyle(
-                                              color: AppColors.textHint,
-                                              fontSize: 11,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                    Text(
-                                      m.isActive ? 'Hợp lệ' : 'Hết hạn',
-                                      style: TextStyle(
-                                        color: m.isActive
-                                            ? AppColors.success
-                                            : AppColors.error,
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          )
-                          .toList(),
-                    ),
-                  ),
-              ],
-            ),
-          ),
+          // ─── Suggestions (visible when typing) ────────────────────────────
+          if (_suggestions.isNotEmpty) _buildSuggestions(),
 
           // ─── Found member card ─────────────────────────────────────────────
           if (_foundMember != null && !_confirmed) _buildMemberCard(),
 
           // ─── Status message ────────────────────────────────────────────────
-          if (_message != null)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-              child: Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: _isSuccess
-                      ? AppColors.success.withValues(alpha: 0.1)
-                      : AppColors.error.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: _isSuccess
-                        ? AppColors.success.withValues(alpha: 0.4)
-                        : AppColors.error.withValues(alpha: 0.4),
-                  ),
-                ),
-                child: Row(
-                  children: [
-                    Icon(
-                      _isSuccess
-                          ? Icons.check_circle_rounded
-                          : Icons.error_rounded,
-                      color: _isSuccess ? AppColors.success : AppColors.error,
-                      size: 20,
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        _message!,
-                        style: TextStyle(
-                          color: _isSuccess
-                              ? AppColors.success
-                              : AppColors.error,
-                          fontWeight: FontWeight.w600,
-                          fontSize: 12,
-                        ),
-                      ),
-                    ),
-                    if (!_isSuccess && _foundMember != null)
-                      ElevatedButton(
-                        onPressed: () {
-                          showModalBottomSheet(
-                            context: context,
-                            backgroundColor: AppColors.surface,
-                            shape: const RoundedRectangleBorder(
-                              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-                            ),
-                            isScrollControlled: true,
-                            builder: (_) => RenewalBottomSheet(
-                              member: _foundMember!,
-                              db: _db,
-                            ),
-                          ).then((_) {
-                            // Reset state so staff can re-verify after renewal
-                            _searchMember(_foundMember!.qrCode);
-                          });
-                        },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.error,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
-                          minimumSize: const Size(0, 32),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                        ),
-                        child: const Text('Gia hạn', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
-                      )
-                    else if (_confirmed)
-                      GestureDetector(
-                        onTap: _reset,
-                        child: const Icon(
-                          Icons.refresh_rounded,
-                          color: AppColors.textHint,
-                          size: 18,
-                        ),
-                      ),
-                  ],
-                ),
+          if (_message != null) _buildStatusMessage(),
+
+          // ─── Expandable: Today's check-in list ────────────────────────────
+          AnimatedSize(
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeInOut,
+            child: _isExpanded ? _buildTodayList() : const SizedBox.shrink(),
+          ),
+
+          // Bottom padding
+          const SizedBox(height: 4),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHeader() {
+    return GestureDetector(
+      onTap: _toggleExpanded,
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+        decoration: BoxDecoration(
+          color: AppColors.accent.withValues(alpha: 0.07),
+          borderRadius: BorderRadius.vertical(
+            top: const Radius.circular(20),
+            bottom: _isExpanded || _foundMember != null || _message != null
+                ? Radius.zero
+                : const Radius.circular(0),
+          ),
+        ),
+        child: Row(
+          children: [
+            // Icon
+            Container(
+              width: 38,
+              height: 38,
+              decoration: BoxDecoration(
+                color: AppColors.accent.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(11),
+              ),
+              child: const Icon(
+                Icons.qr_code_scanner_rounded,
+                color: AppColors.accent,
+                size: 20,
               ),
             ),
+            const SizedBox(width: 12),
+            // Title + subtitle
+            const Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Check-in Hội Viên',
+                    style: TextStyle(
+                      color: AppColors.textPrimary,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  Text(
+                    'Quét thẻ QR hoặc tìm kiếm tên hội viên',
+                    style: TextStyle(
+                      color: AppColors.textHint,
+                      fontSize: 10,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            // Today badge
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              decoration: BoxDecoration(
+                color: AppColors.success.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                  color: AppColors.success.withValues(alpha: 0.3),
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(
+                    Icons.check_circle_rounded,
+                    color: AppColors.success,
+                    size: 12,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    _loadingMembers
+                        ? '...'
+                        : '${_todayCheckIns.length} hôm nay',
+                    style: const TextStyle(
+                      color: AppColors.success,
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            // Chevron toggle
+            RotationTransition(
+              turns: _chevronAnim,
+              child: Icon(
+                Icons.keyboard_arrow_down_rounded,
+                color: AppColors.textHint,
+                size: 22,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
-          // ─── Today's check-in list ──────────────────────────────────────
-          _buildTodayList(),
+  Widget _buildSearchBar() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
+      child: Row(
+        children: [
+          Expanded(
+            child: TextField(
+              controller: _qrCtrl,
+              focusNode: _focusNode,
+              style: const TextStyle(
+                color: AppColors.textPrimary,
+                fontSize: 13,
+              ),
+              onChanged: (val) => _filterSuggestions(val.trim()),
+              decoration: InputDecoration(
+                hintText: 'Quét QR bằng súng hoặc gõ tên / SĐT / mã...',
+                hintStyle: const TextStyle(
+                  color: AppColors.textHint,
+                  fontSize: 12,
+                ),
+                prefixIcon: const Icon(
+                  Icons.search_rounded,
+                  color: AppColors.textHint,
+                  size: 18,
+                ),
+                filled: true,
+                fillColor: AppColors.surfaceLight,
+                isDense: true,
+                contentPadding:
+                    const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide.none,
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(
+                    color: AppColors.accent,
+                    width: 1.5,
+                  ),
+                ),
+              ),
+              onSubmitted: (val) => _searchMember(val.trim()),
+            ),
+          ),
+          const SizedBox(width: 8),
+          // Camera button
+          _IconBtn(
+            icon: Icons.camera_alt_rounded,
+            color: AppColors.accent,
+            bgColor: AppColors.surfaceLight,
+            borderColor: AppColors.accent.withValues(alpha: 0.3),
+            onTap: _isLoading ? null : _openCameraScanner,
+          ),
+          const SizedBox(width: 6),
+          // Send/Search button
+          _IconBtn(
+            icon: Icons.send_rounded,
+            color: Colors.white,
+            bgColor: AppColors.accent,
+            isLoading: _isLoading,
+            onTap: _isLoading ? null : () => _searchMember(_qrCtrl.text.trim()),
+          ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildSuggestions() {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(14, 0, 14, 8),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceLight,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.accent.withValues(alpha: 0.2)),
+      ),
+      child: Column(
+        children: _suggestions
+            .map(
+              (m) => InkWell(
+                onTap: () => _selectMemberDirectly(m),
+                borderRadius: BorderRadius.circular(12),
+                child: Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+                  child: Row(
+                    children: [
+                      CircleAvatar(
+                        radius: 13,
+                        backgroundColor:
+                            m.isActive ? AppColors.success : AppColors.error,
+                        child: Text(
+                          m.name[0].toUpperCase(),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              m.name,
+                              style: const TextStyle(
+                                color: AppColors.textPrimary,
+                                fontWeight: FontWeight.w600,
+                                fontSize: 13,
+                              ),
+                            ),
+                            Text(
+                              m.phone,
+                              style: const TextStyle(
+                                color: AppColors.textHint,
+                                fontSize: 10,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: m.isActive
+                              ? AppColors.success.withValues(alpha: 0.12)
+                              : AppColors.error.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          m.isActive ? 'Hợp lệ' : 'Hết hạn',
+                          style: TextStyle(
+                            color:
+                                m.isActive ? AppColors.success : AppColors.error,
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            )
+            .toList(),
       ),
     );
   }
@@ -693,7 +653,7 @@ class _AdminCheckInWidgetState extends State<AdminCheckInWidget> {
   Widget _buildMemberCard() {
     final m = _foundMember!;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+      padding: const EdgeInsets.fromLTRB(14, 0, 14, 10),
       child: Container(
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
@@ -709,17 +669,17 @@ class _AdminCheckInWidgetState extends State<AdminCheckInWidget> {
           children: [
             CircleAvatar(
               backgroundColor: m.isActive ? AppColors.success : AppColors.error,
-              radius: 22,
+              radius: 20,
               child: Text(
                 m.name[0].toUpperCase(),
                 style: const TextStyle(
                   color: Colors.white,
-                  fontSize: 16,
+                  fontSize: 15,
                   fontWeight: FontWeight.bold,
                 ),
               ),
             ),
-            const SizedBox(width: 12),
+            const SizedBox(width: 10),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -729,7 +689,7 @@ class _AdminCheckInWidgetState extends State<AdminCheckInWidget> {
                     style: const TextStyle(
                       color: AppColors.textPrimary,
                       fontWeight: FontWeight.w700,
-                      fontSize: 15,
+                      fontSize: 14,
                     ),
                   ),
                   Text(
@@ -752,41 +712,37 @@ class _AdminCheckInWidgetState extends State<AdminCheckInWidget> {
               style: OutlinedButton.styleFrom(
                 foregroundColor: AppColors.textSecondary,
                 side: BorderSide(color: Colors.white.withValues(alpha: 0.1)),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 8,
-                ),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
                 minimumSize: Size.zero,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(8),
                 ),
               ),
-              child: const Text('Huỷ', style: TextStyle(fontSize: 12)),
+              child: const Text('Huỷ', style: TextStyle(fontSize: 11)),
             ),
             const SizedBox(width: 6),
             ElevatedButton.icon(
               onPressed: _isLoading ? null : _confirmCheckIn,
               icon: _isLoading
                   ? const SizedBox(
-                      width: 14,
-                      height: 14,
+                      width: 13,
+                      height: 13,
                       child: CircularProgressIndicator(
                         strokeWidth: 2,
                         color: Colors.white,
                       ),
                     )
-                  : const Icon(Icons.check_rounded, size: 16),
+                  : const Icon(Icons.check_rounded, size: 15),
               label: const Text(
                 'Check-in',
-                style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
               ),
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.success,
                 foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 14,
-                  vertical: 8,
-                ),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 minimumSize: Size.zero,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(8),
@@ -799,16 +755,99 @@ class _AdminCheckInWidgetState extends State<AdminCheckInWidget> {
     );
   }
 
+  Widget _buildStatusMessage() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 0, 14, 10),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: _isSuccess
+              ? AppColors.success.withValues(alpha: 0.1)
+              : AppColors.error.withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: _isSuccess
+                ? AppColors.success.withValues(alpha: 0.4)
+                : AppColors.error.withValues(alpha: 0.4),
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              _isSuccess ? Icons.check_circle_rounded : Icons.error_rounded,
+              color: _isSuccess ? AppColors.success : AppColors.error,
+              size: 18,
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                _message!,
+                style: TextStyle(
+                  color: _isSuccess ? AppColors.success : AppColors.error,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 12,
+                ),
+              ),
+            ),
+            if (!_isSuccess && _foundMember != null)
+              ElevatedButton(
+                onPressed: () {
+                  showModalBottomSheet(
+                    context: context,
+                    backgroundColor: AppColors.surface,
+                    shape: const RoundedRectangleBorder(
+                      borderRadius:
+                          BorderRadius.vertical(top: Radius.circular(24)),
+                    ),
+                    isScrollControlled: true,
+                    builder: (_) => RenewalBottomSheet(
+                      member: _foundMember!,
+                      db: _db,
+                    ),
+                  ).then((_) {
+                    _searchMember(_foundMember!.qrCode);
+                  });
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.error,
+                  foregroundColor: Colors.white,
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
+                  minimumSize: const Size(0, 30),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+                child: const Text(
+                  'Gia hạn',
+                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                ),
+              )
+            else if (_confirmed)
+              GestureDetector(
+                onTap: _reset,
+                child: const Icon(
+                  Icons.refresh_rounded,
+                  color: AppColors.textHint,
+                  size: 18,
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildTodayList() {
     if (_todayCheckIns.isEmpty) {
       return Padding(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+        padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
         child: Row(
           children: [
             Icon(
               Icons.info_outline_rounded,
               color: AppColors.textHint.withValues(alpha: 0.5),
-              size: 14,
+              size: 13,
             ),
             const SizedBox(width: 6),
             const Text(
@@ -822,9 +861,19 @@ class _AdminCheckInWidgetState extends State<AdminCheckInWidget> {
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
       children: [
+        // Divider
         Padding(
-          padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+          child: Divider(
+            color: Colors.white.withValues(alpha: 0.07),
+            height: 1,
+          ),
+        ),
+        const SizedBox(height: 10),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -833,74 +882,136 @@ class _AdminCheckInWidgetState extends State<AdminCheckInWidget> {
                 style: TextStyle(
                   color: AppColors.textSecondary,
                   fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: 0.5,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.3,
                 ),
               ),
-              Text(
-                '${_todayCheckIns.length} lượt',
-                style: const TextStyle(
-                  color: AppColors.accent,
-                  fontSize: 11,
-                  fontWeight: FontWeight.bold,
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: AppColors.accent.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  '${_todayCheckIns.length} lượt',
+                  style: const TextStyle(
+                    color: AppColors.accent,
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
               ),
             ],
           ),
         ),
         ..._todayCheckIns
-            .take(5)
+            .take(6)
             .map(
               (ci) => Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
-                child: Row(
-                  children: [
-                    Container(
-                      width: 32,
-                      height: 32,
-                      decoration: BoxDecoration(
-                        color: AppColors.success.withValues(alpha: 0.1),
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(
-                        Icons.check_rounded,
-                        color: AppColors.success,
-                        size: 16,
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        ci.memberName,
-                        style: const TextStyle(
-                          color: AppColors.textPrimary,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w500,
+                padding: const EdgeInsets.fromLTRB(14, 0, 14, 7),
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+                  decoration: BoxDecoration(
+                    color: AppColors.surfaceLight.withValues(alpha: 0.5),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 28,
+                        height: 28,
+                        decoration: BoxDecoration(
+                          color: AppColors.success.withValues(alpha: 0.12),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.check_rounded,
+                          color: AppColors.success,
+                          size: 15,
                         ),
                       ),
-                    ),
-                    Text(
-                      DateFormat('HH:mm').format(ci.timestamp),
-                      style: const TextStyle(
-                        color: AppColors.textHint,
-                        fontSize: 11,
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          ci.memberName,
+                          style: const TextStyle(
+                            color: AppColors.textPrimary,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
                       ),
-                    ),
-                  ],
+                      Text(
+                        DateFormat('HH:mm').format(ci.timestamp),
+                        style: const TextStyle(
+                          color: AppColors.textHint,
+                          fontSize: 11,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
-        if (_todayCheckIns.length > 5)
+        if (_todayCheckIns.length > 6)
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 4, 16, 14),
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
             child: Text(
-              '... và ${_todayCheckIns.length - 5} lượt khác',
+              '+ ${_todayCheckIns.length - 6} lượt khác hôm nay',
               style: const TextStyle(color: AppColors.textHint, fontSize: 11),
             ),
           )
         else
-          const SizedBox(height: 14),
+          const SizedBox(height: 8),
       ],
+    );
+  }
+}
+
+/// Small icon button helper
+class _IconBtn extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+  final Color bgColor;
+  final Color? borderColor;
+  final VoidCallback? onTap;
+  final bool isLoading;
+
+  const _IconBtn({
+    required this.icon,
+    required this.color,
+    required this.bgColor,
+    this.borderColor,
+    this.onTap,
+    this.isLoading = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 42,
+        height: 42,
+        decoration: BoxDecoration(
+          color: bgColor,
+          borderRadius: BorderRadius.circular(11),
+          border: borderColor != null
+              ? Border.all(color: borderColor!)
+              : null,
+        ),
+        child: isLoading
+            ? Padding(
+                padding: const EdgeInsets.all(11),
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: color,
+                ),
+              )
+            : Icon(icon, color: color, size: 18),
+      ),
     );
   }
 }

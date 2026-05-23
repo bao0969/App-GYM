@@ -34,7 +34,9 @@ class CheckInModel {
       staffName: json['staffName'],
       timestamp: json['timestamp'] is Timestamp
           ? (json['timestamp'] as Timestamp).toDate()
-          : DateTime.now(),
+          : (json['timestamp'] is String
+              ? DateTime.tryParse(json['timestamp']) ?? DateTime(2000)
+              : DateTime(2000)),
       method: CheckInMethod.values.firstWhere(
         (m) => m.name == json['method'],
         orElse: () => CheckInMethod.manual,

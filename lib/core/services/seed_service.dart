@@ -134,7 +134,8 @@ class SeedService {
     await _seedPackages();
     await _seedTrainers();
     await _seedMembers();
-    await _seedCheckIns();
+    // Xóa sạch check-in ngày hôm nay để tránh kẹt số 4 mock data cũ
+    await _clearTodayCheckIns();
     await _seedRenewals();
     await _seedCoupons();
     await _seedProducts();
@@ -183,7 +184,7 @@ class SeedService {
     await _seedPackages();
     await _seedTrainers();
     await _seedMembers();
-    await _seedCheckIns();
+    // await _seedCheckIns();
     await _seedRenewals();
     await _seedCoupons();
     await _seedProducts();
@@ -520,35 +521,19 @@ class SeedService {
     } catch (_) {}
   }
 
-  Future<void> _seedCheckIns() async {
+  Future<void> _clearTodayCheckIns() async {
     try {
       final today = DateTime.now();
       final startOfDay = DateTime(today.year, today.month, today.day);
-      final ciSnap = await _db
+      final endOfDay = startOfDay.add(const Duration(days: 1));
+      final snap = await _db
           .collection('checkins')
-          .where('timestamp', isGreaterThan: Timestamp.fromDate(startOfDay))
-          .limit(1)
+          .where('timestamp', isGreaterThanOrEqualTo: Timestamp.fromDate(startOfDay))
+          .where('timestamp', isLessThan: Timestamp.fromDate(endOfDay))
           .get();
-      if (ciSnap.docs.isNotEmpty) return;
-
-      // Lấy danh sách members để check-in
-      final membersSnap = await _db
-          .collection('members')
-          .where('status', isEqualTo: 'active')
-          .limit(4)
-          .get();
-
-      for (int i = 0; i < membersSnap.docs.length; i++) {
-        final m = membersSnap.docs[i];
-        await _db.collection('checkins').add({
-          'memberId': m.id,
-          'memberName': m.data()['name'] ?? 'Hội Viên',
-          'timestamp': Timestamp.fromDate(
-            startOfDay.add(Duration(hours: 6 + i, minutes: i * 15)),
-          ),
-          'method': 'manual',
-          'isSuccess': true,
-        });
+      
+      for (final doc in snap.docs) {
+        await doc.reference.delete();
       }
     } catch (_) {}
   }
@@ -629,7 +614,7 @@ class SeedService {
         }
       }
 
-      // 2. Migrate Members
+      // 2. Migrate Members & Fix reset joinDate
       final membersSnap = await _db.collection('members').get();
       for (final doc in membersSnap.docs) {
         final data = doc.data();
@@ -641,6 +626,31 @@ class SeedService {
         if (data['status'] == 'expired') {
           updates['status'] = 'active'; // Getter will handle expiry dynamically
         }
+
+        // Sửa lỗi ngày tham gia bị reset về 01/01/2000 bằng cách lấy lại từ users.createdAt
+        final joinTimestamp = data['joinDate'];
+        if (joinTimestamp is Timestamp) {
+          final joinDate = joinTimestamp.toDate();
+          if (joinDate.year == 2000 && joinDate.month == 1 && joinDate.day == 1) {
+            final userId = data['userId'] as String? ?? '';
+            DateTime? correctDate;
+
+            if (userId.isNotEmpty) {
+              final userDoc = await _db.collection('users').doc(userId).get();
+              if (userDoc.exists) {
+                final userData = userDoc.data()!;
+                final createdAtTimestamp = userData['createdAt'];
+                if (createdAtTimestamp is Timestamp) {
+                  correctDate = createdAtTimestamp.toDate();
+                }
+              }
+            }
+            // Fallback: nếu không tìm thấy (hội viên mock), dùng ngày cũ (60 ngày trước) để không hiển thị là hội viên mới tháng này
+            correctDate ??= DateTime.now().subtract(const Duration(days: 60));
+            updates['joinDate'] = Timestamp.fromDate(correctDate);
+          }
+        }
+
         if (updates.isNotEmpty) {
           await doc.reference.update(updates);
         }

@@ -3,25 +3,29 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import '../../core/constants/app_colors.dart';
-import '../../providers/auth_provider.dart';
-import 'package:provider/provider.dart';
 
 class MemberCheckinHistoryScreen extends StatelessWidget {
-  const MemberCheckinHistoryScreen({super.key});
+  final String memberId;
+  const MemberCheckinHistoryScreen({super.key, required this.memberId});
 
-  Stream<QuerySnapshot> _stream(String userId) {
+  Stream<List<QueryDocumentSnapshot>> _stream() {
     return FirebaseFirestore.instance
         .collection('checkins')
-        .where('userId', isEqualTo: userId)
-        .orderBy('checkInTime', descending: true)
-        .limit(50)
-        .snapshots();
+        .where('memberId', isEqualTo: memberId)
+        .snapshots()
+        .map((snap) {
+          final docs = snap.docs.toList();
+          docs.sort((a, b) {
+            final ta = (a.data()['timestamp'] as Timestamp?)?.toDate() ?? DateTime.now();
+            final tb = (b.data()['timestamp'] as Timestamp?)?.toDate() ?? DateTime.now();
+            return tb.compareTo(ta);
+          });
+          return docs.take(50).toList();
+        });
   }
 
   @override
   Widget build(BuildContext context) {
-    final user = context.read<AuthProvider>().user;
-
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
@@ -35,8 +39,8 @@ class MemberCheckinHistoryScreen extends StatelessWidget {
         ),
         iconTheme: const IconThemeData(color: AppColors.textPrimary),
       ),
-      body: StreamBuilder<QuerySnapshot>(
-        stream: _stream(user?.uid ?? ''),
+      body: StreamBuilder<List<QueryDocumentSnapshot>>(
+        stream: _stream(),
         builder: (context, snap) {
           if (snap.connectionState == ConnectionState.waiting) {
             return const Center(
@@ -44,7 +48,7 @@ class MemberCheckinHistoryScreen extends StatelessWidget {
             );
           }
 
-          final docs = snap.data?.docs ?? [];
+          final docs = snap.data ?? [];
 
           if (docs.isEmpty) {
             return Center(
@@ -81,7 +85,7 @@ class MemberCheckinHistoryScreen extends StatelessWidget {
           final Map<String, List<QueryDocumentSnapshot>> grouped = {};
           for (final doc in docs) {
             final data = doc.data() as Map<String, dynamic>;
-            final ts = data['checkInTime'] as Timestamp?;
+            final ts = data['timestamp'] as Timestamp?;
             if (ts == null) continue;
             final date = ts.toDate();
             final key = DateFormat('MM/yyyy').format(date);
@@ -163,9 +167,13 @@ class MemberCheckinHistoryScreen extends StatelessWidget {
                       child: Column(
                         children: [
                           Text(
-                            grouped.isNotEmpty
-                                ? '${grouped.values.first.length}'
-                                : '0',
+                            docs.where((doc) {
+                              final d = (doc.data() as Map<String, dynamic>)['checkInTime'] as Timestamp?;
+                              if (d == null) return false;
+                              final date = d.toDate();
+                              final now = DateTime.now();
+                              return date.month == now.month && date.year == now.year;
+                            }).length.toString(),
                             style: const TextStyle(
                               color: Colors.white,
                               fontSize: 28,
@@ -229,7 +237,7 @@ class MemberCheckinHistoryScreen extends StatelessWidget {
                         ),
                         ...entry.value.map((doc) {
                           final data = doc.data() as Map<String, dynamic>;
-                          final ts = data['checkInTime'] as Timestamp?;
+                          final ts = data['timestamp'] as Timestamp?;
                           final date = ts?.toDate() ?? DateTime.now();
                           final method = data['method'] ?? 'manual';
 

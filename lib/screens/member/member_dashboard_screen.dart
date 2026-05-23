@@ -271,8 +271,8 @@ class _MemberHome extends StatelessWidget {
     final db = FirestoreService();
 
     return SafeArea(
-      child: FutureBuilder<MemberModel?>(
-        future: db.getMemberByUserId(user?.uid ?? ''),
+      child: StreamBuilder<MemberModel?>(
+        stream: db.streamMemberByUserId(user?.uid ?? ''),
         builder: (context, snapshot) {
           final member = snapshot.data;
           return CustomScrollView(
@@ -406,8 +406,8 @@ class _MemberHome extends StatelessWidget {
                                       ),
                                       const SizedBox(height: 4),
                                       Text(
-                                        member?.packageExpiry != null
-                                            ? '${member!.daysRemaining} ngày'
+                                        member != null && (member.packageExpiry != null || member.sessionsRemaining > 0)
+                                            ? (member.sessionsRemaining > 0 ? '${member.sessionsRemaining} buổi' : '${member.daysRemaining} ngày')
                                             : '---',
                                         style: const TextStyle(
                                           color: Colors.white,
@@ -523,8 +523,7 @@ class _MemberHome extends StatelessWidget {
                             onTap: () => Navigator.push(
                               context,
                               MaterialPageRoute(
-                                builder: (_) =>
-                                    const MemberCheckinHistoryScreen(),
+                                  builder: (_) => MemberCheckinHistoryScreen(memberId: member!.id),
                               ),
                             ),
                           ),
@@ -643,8 +642,8 @@ class _MemberQRScreen extends StatelessWidget {
     final db = FirestoreService();
 
     return SafeArea(
-      child: FutureBuilder<MemberModel?>(
-        future: db.getMemberByUserId(user?.uid ?? ''),
+      child: StreamBuilder<MemberModel?>(
+        stream: db.streamMemberByUserId(user?.uid ?? ''),
         builder: (context, snapshot) {
           final member = snapshot.data;
           final qrData = member?.qrCode ?? user?.uid ?? 'GYMSYNC_MEMBER';

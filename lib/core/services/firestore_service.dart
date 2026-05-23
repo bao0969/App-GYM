@@ -52,6 +52,18 @@ class FirestoreService {
     return MemberModel.fromJson(snap.docs.first.data(), snap.docs.first.id);
   }
 
+  Stream<MemberModel?> streamMemberByUserId(String userId) {
+    return _db
+        .collection('members')
+        .where('userId', isEqualTo: userId)
+        .limit(1)
+        .snapshots()
+        .map((snap) {
+      if (snap.docs.isEmpty) return null;
+      return MemberModel.fromJson(snap.docs.first.data(), snap.docs.first.id);
+    });
+  }
+
   Future<MemberModel?> getMemberByQR(String qrCode) async {
     final snap = await _db
         .collection('members')
@@ -66,12 +78,22 @@ class FirestoreService {
     await _db.collection('members').add(data);
   }
 
+  Future<String> _resolveMemberDocId(String id) async {
+    final doc = await _db.collection('members').doc(id).get();
+    if (doc.exists) return id;
+    final query = await _db.collection('members').where('userId', isEqualTo: id).limit(1).get();
+    if (query.docs.isNotEmpty) return query.docs.first.id;
+    return id;
+  }
+
   Future<void> updateMember(String id, Map<String, dynamic> data) async {
-    await _db.collection('members').doc(id).update(data);
+    final docId = await _resolveMemberDocId(id);
+    await _db.collection('members').doc(docId).update(data);
   }
 
   Future<void> deleteMember(String id) async {
-    await _db.collection('members').doc(id).delete();
+    final docId = await _resolveMemberDocId(id);
+    await _db.collection('members').doc(docId).delete();
   }
 
   /// Kích hoạt membership mới. Nếu hội viên còn hạn, cộng ngày từ expiry cũ.
@@ -83,11 +105,12 @@ class FirestoreService {
     bool stackOnExisting = true, // Cộng ngày vào hạn cũ nếu còn hạn
   }) async {
     final now = DateTime.now();
+    final docId = await _resolveMemberDocId(id);
 
     // Lấy expiry hiện tại để quyết định tính từ đâu
     DateTime baseDate = now;
     if (stackOnExisting) {
-      final memberDoc = await _db.collection('members').doc(id).get();
+      final memberDoc = await _db.collection('members').doc(docId).get();
       if (memberDoc.exists) {
         final data = memberDoc.data()!;
         if (data['packageExpiry'] is Timestamp) {
@@ -100,7 +123,7 @@ class FirestoreService {
       }
     }
 
-    await updateMember(id, {
+    await updateMember(docId, {
       'status': MemberStatus.active.name,
       'packageExpiry': Timestamp.fromDate(
         baseDate.add(Duration(days: durationDays)),
@@ -112,7 +135,8 @@ class FirestoreService {
   /// Tạm dừng membership. Cộng số ngày pause vào ngày hết hạn để hội viên
   /// không mất thời gian tập. (Fix #8: dùng isDbActive thay vì currentStatus)
   Future<void> pauseMember(String id, int daysToPause) async {
-    final memberDoc = await _db.collection('members').doc(id).get();
+    final docId = await _resolveMemberDocId(id);
+    final memberDoc = await _db.collection('members').doc(docId).get();
     if (!memberDoc.exists) return;
 
     final member = MemberModel.fromJson(memberDoc.data()!, memberDoc.id);
@@ -120,7 +144,7 @@ class FirestoreService {
     // để không block member có status 'expiring_soon'
     if (member.isDbActive && member.packageExpiry != null) {
       final newExpiry = member.packageExpiry!.add(Duration(days: daysToPause));
-      await updateMember(id, {
+      await updateMember(docId, {
         'status': MemberStatus.paused.name,
         'packageExpiry': Timestamp.fromDate(newExpiry),
       });
@@ -301,9 +325,10 @@ class FirestoreService {
   ///         Gói time-based (30/90/365 ngày) KHÔNG trừ buổi khi check-in thường.
   /// Fix #1: addCheckIn() không trừ buổi PT – việc đó do completePtSession() làm.
   Future<CheckInModel> addCheckIn(CheckInModel checkIn) async {
+    final docId = await _resolveMemberDocId(checkIn.memberId);
     final memberDoc = await _db
         .collection('members')
-        .doc(checkIn.memberId)
+        .doc(docId)
         .get();
     if (!memberDoc.exists) throw Exception('Member not found');
 
@@ -374,18 +399,24 @@ class FirestoreService {
 
   /// Lấy danh sách check-in hôm nay
   Future<List<CheckInModel>> getTodayCheckIns() async {
-    final startOfDay = DateTime.now().copyWith(
+    final now = DateTime.now();
+    final startOfDay = now.copyWith(
       hour: 0,
       minute: 0,
       second: 0,
       millisecond: 0,
+      microsecond: 0,
     );
+    final endOfDay = startOfDay.add(const Duration(days: 1));
     final snap = await _db
         .collection('checkins')
-        .where('timestamp', isGreaterThan: Timestamp.fromDate(startOfDay))
+        .where('timestamp', isGreaterThanOrEqualTo: Timestamp.fromDate(startOfDay))
+        .where('timestamp', isLessThan: Timestamp.fromDate(endOfDay))
         .orderBy('timestamp', descending: true)
-        .get();
-    return snap.docs.map((d) => CheckInModel.fromJson(d.data(), d.id)).toList();
+        .get(const GetOptions(source: Source.server));
+    return snap.docs
+        .map((d) => CheckInModel.fromJson(d.data(), d.id))
+        .toList();
   }
 
   // ==================== USERS ====================
@@ -411,25 +442,38 @@ class FirestoreService {
   // ==================== DASHBOARD STATS ====================
 
   Future<Map<String, dynamic>> getDashboardStats() async {
-    final members = await getMembers();
-    final trainers = await getTrainers();
-
     final now = DateTime.now();
-    final startOfDay = now.copyWith(hour: 0, minute: 0, second: 0);
+    final startOfDay = now.copyWith(hour: 0, minute: 0, second: 0, millisecond: 0, microsecond: 0);
+    final endOfDay = startOfDay.add(const Duration(days: 1));
     final startOfMonth = DateTime(now.year, now.month, 1);
+    final endOfMonth = DateTime(now.year, now.month + 1, 1);
 
-    final todayCheckins = await _db
-        .collection('checkins')
-        .where('timestamp', isGreaterThan: Timestamp.fromDate(startOfDay))
-        .get();
+    final results = await Future.wait([
+      getMembers(),
+      getTrainers(),
+      _db
+          .collection('checkins')
+          .where('timestamp', isGreaterThanOrEqualTo: Timestamp.fromDate(startOfDay))
+          .where('timestamp', isLessThan: Timestamp.fromDate(endOfDay))
+          .get(const GetOptions(source: Source.server)),
+    ]);
+
+    final members = results[0] as List<MemberModel>;
+    final trainers = results[1] as List<TrainerModel>;
+    final todayCheckins = results[2] as QuerySnapshot<Map<String, dynamic>>;
 
     final activeMembers = members.where((m) => m.isActive).length;
     final expiredMembers = members
         .where((m) => m.currentStatus == 'expired')
         .length;
     final newThisMonth = members
-        .where((m) => m.joinDate.isAfter(startOfMonth))
+        .where((m) => m.joinDate.isAfter(startOfMonth) && m.joinDate.isBefore(endOfMonth))
         .length;
+
+    final validTodayCheckins = todayCheckins.docs.where((d) {
+      final data = d.data();
+      return data['timestamp'] is Timestamp;
+    }).length;
 
     return {
       'totalMembers': members.length,
@@ -437,7 +481,7 @@ class FirestoreService {
       'expiredMembers': expiredMembers,
       'newMembersThisMonth': newThisMonth,
       'totalTrainers': trainers.length,
-      'todayCheckIns': todayCheckins.docs.length,
+      'todayCheckIns': validTodayCheckins,
     };
   }
 
@@ -680,6 +724,22 @@ class FirestoreService {
     }
     await _db.collection('orders').doc(orderId).update(updateData);
     await processPayment(orderId);
+  }
+
+  Stream<List<OrderModel>> streamPendingOrders() {
+    return _db
+        .collection('orders')
+        .where('status', isEqualTo: OrderStatus.pending.name)
+        .snapshots()
+        .map(
+          (snap) {
+            final list = snap.docs
+                .map((d) => OrderModel.fromJson(d.data(), d.id))
+                .toList();
+            list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+            return list;
+          },
+        );
   }
 
   // ==================== BODY METRICS (V2) ====================

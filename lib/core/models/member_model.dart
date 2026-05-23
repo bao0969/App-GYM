@@ -112,7 +112,9 @@ class MemberModel {
       trainerId: json['trainerId'],
       joinDate: json['joinDate'] is Timestamp
           ? (json['joinDate'] as Timestamp).toDate()
-          : DateTime.now(),
+          : (json['joinDate'] is String
+              ? DateTime.tryParse(json['joinDate']) ?? DateTime(2000)
+              : DateTime(2000)),
       address: json['address'],
       notes: json['notes'],
       sessionsRemaining: json['sessionsRemaining'] ?? 0,

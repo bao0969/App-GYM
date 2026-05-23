@@ -5,6 +5,7 @@ import '../../core/models/member_model.dart';
 import '../../core/services/firestore_service.dart';
 import '../admin/admin_member_detail_screen.dart';
 import '../admin/admin_renewal_screen.dart';
+import '../admin/admin_booking_screen.dart';
 
 class AdminMembersScreen extends StatefulWidget {
   const AdminMembersScreen({super.key});
@@ -199,9 +200,18 @@ class _AdminMembersScreenState extends State<AdminMembersScreen>
                       .toList();
                 }
                 if (_statusFilter != 'all') {
-                  members = members
-                      .where((m) => m.status.name == _statusFilter)
-                      .toList();
+                  members = members.where((m) {
+                    switch (_statusFilter) {
+                      case 'active':
+                        return m.isActive;
+                      case 'expired':
+                        return m.currentStatus == 'expired';
+                      case 'paused':
+                        return m.status == MemberStatus.paused;
+                      default:
+                        return true;
+                    }
+                  }).toList();
                 }
 
                 if (members.isEmpty) {
@@ -353,7 +363,7 @@ class _AdminMembersScreenState extends State<AdminMembersScreen>
                               'email': emailCtrl.text.trim(),
                               'phone': phoneCtrl.text.trim(),
                               'address': addressCtrl.text.trim(),
-                              'status': MemberStatus.active.name,
+                              'status': MemberStatus.pending.name,
                               'qrCode':
                                   'MBR${DateTime.now().millisecondsSinceEpoch}',
                               'joinDate': Timestamp.now(),
@@ -642,11 +652,11 @@ class _MemberCard extends StatelessWidget {
                           ),
                         ),
                       ],
-                      if (member.packageExpiry != null &&
+                      if ((member.packageExpiry != null || member.sessionsRemaining > 0) &&
                           member.status == MemberStatus.active) ...[
                         const SizedBox(width: 6),
                         Text(
-                          '${member.daysRemaining}d',
+                          member.sessionsRemaining > 0 ? '${member.sessionsRemaining}b' : '${member.daysRemaining}d',
                           style: TextStyle(
                             color: _statusColor,
                             fontSize: 10,
@@ -702,6 +712,23 @@ class _MemberCard extends StatelessWidget {
                   ),
                 ),
                 const PopupMenuItem(
+                  value: 'schedule_pt',
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.sports_rounded,
+                        color: AppColors.primary,
+                        size: 18,
+                      ),
+                      SizedBox(width: 8),
+                      Text(
+                        'Sắp Lịch PT',
+                        style: TextStyle(color: AppColors.textPrimary),
+                      ),
+                    ],
+                  ),
+                ),
+                const PopupMenuItem(
                   value: 'pause',
                   child: Row(
                     children: [
@@ -747,16 +774,66 @@ class _MemberCard extends StatelessWidget {
                     Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (_) => const AdminRenewalScreen(),
+                        builder: (_) => AdminRenewalScreen(initialMemberId: member.id),
+                      ),
+                    );
+                    break;
+                  case 'schedule_pt':
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => AdminPTBookingFlow(initialMember: member),
                       ),
                     );
                     break;
                   case 'pause':
-                    await db.updateMember(member.id, {
-                      'status': member.status == MemberStatus.paused
-                          ? MemberStatus.active.name
-                          : MemberStatus.paused.name,
-                    });
+                    if (member.status == MemberStatus.paused) {
+                      await db.updateMember(member.id, {'status': MemberStatus.active.name});
+                    } else {
+                      int days = 7;
+                      final result = await showDialog<int>(
+                        context: context,
+                        builder: (ctx) => StatefulBuilder(
+                          builder: (ctx2, setS) => AlertDialog(
+                            backgroundColor: AppColors.surface,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                            title: const Text('Tạm Dừng Gói Tập', style: TextStyle(color: AppColors.textPrimary, fontSize: 16, fontWeight: FontWeight.w700)),
+                            content: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text('Tạm dừng gói cho ${member.name}.\nHạn gói sẽ được cộng thêm số ngày pause.', style: const TextStyle(color: AppColors.textSecondary, fontSize: 13, height: 1.4)),
+                                const SizedBox(height: 16),
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    IconButton(onPressed: () => setS(() => days = (days - 1).clamp(1, 90)), icon: const Icon(Icons.remove_circle_rounded, color: AppColors.primary, size: 28)),
+                                    const SizedBox(width: 8),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                                      decoration: BoxDecoration(color: AppColors.surfaceLight, borderRadius: BorderRadius.circular(12)),
+                                      child: Text('$days ngày', style: const TextStyle(color: AppColors.textPrimary, fontSize: 20, fontWeight: FontWeight.w800)),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    IconButton(onPressed: () => setS(() => days = (days + 1).clamp(1, 90)), icon: const Icon(Icons.add_circle_rounded, color: AppColors.primary, size: 28)),
+                                  ],
+                                ),
+                              ],
+                            ),
+                            actions: [
+                              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Huỷ', style: TextStyle(color: AppColors.textSecondary))),
+                              ElevatedButton(
+                                onPressed: () => Navigator.pop(ctx, days),
+                                style: ElevatedButton.styleFrom(backgroundColor: AppColors.warning, foregroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
+                                child: const Text('Xác Nhận', style: TextStyle(fontWeight: FontWeight.w700)),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                      if (result != null) {
+                        await db.pauseMember(member.id, result);
+                      }
+                    }
                     break;
                   case 'delete':
                     // Cảnh báo khi hội viên còn gói tập active

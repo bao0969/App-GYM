@@ -1,5 +1,6 @@
 // Tính năng mới: Màn hình POS - Bán hàng tại quầy
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/models/order_model.dart';
@@ -107,7 +108,7 @@ class _AdminPosScreenState extends State<AdminPosScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              'Tạo đơn thành công: ${_cartTotal.toInt()} VNĐ - ${items.length} sản phẩm',
+              'Tạo đơn thành công: ${NumberFormat.simpleCurrency(locale: 'vi_VN').format(_cartTotal)} - ${items.length} sản phẩm',
             ),
             backgroundColor: AppColors.success,
           ),
@@ -216,7 +217,7 @@ class _AdminPosScreenState extends State<AdminPosScreen> {
                       ),
                       const Spacer(),
                       Text(
-                        '${_cartTotal.toInt()} VNĐ',
+                        NumberFormat.simpleCurrency(locale: 'vi_VN').format(_cartTotal),
                         style: const TextStyle(
                           color: Colors.white,
                           fontSize: 16,
@@ -482,7 +483,7 @@ class _AdminPosScreenState extends State<AdminPosScreen> {
                 style: TextStyle(color: AppColors.textSecondary, fontSize: 14),
               ),
               Text(
-                '${_cartTotal.toInt()} VNĐ',
+                NumberFormat.simpleCurrency(locale: 'vi_VN').format(_cartTotal),
                 style: const TextStyle(
                   color: AppColors.primary,
                   fontSize: 22,
@@ -678,7 +679,7 @@ class _ProductCard extends StatelessWidget {
             ),
             const SizedBox(height: 4),
             Text(
-              '${product.priceLabel} VNĐ',
+              NumberFormat.simpleCurrency(locale: 'vi_VN').format(product.price),
               style: const TextStyle(
                 color: AppColors.primary,
                 fontSize: 14,
@@ -741,7 +742,7 @@ class _CartItem extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                 ),
                 Text(
-                  '${product.priceLabel} VNĐ × $quantity',
+                  '${NumberFormat.simpleCurrency(locale: 'vi_VN').format(product.price)} × $quantity',
                   style: const TextStyle(
                     color: AppColors.primary,
                     fontSize: 12,

@@ -9,7 +9,8 @@ import '../../core/services/firestore_service.dart';
 import '../../core/services/notification_service.dart';
 
 class AdminRenewalScreen extends StatefulWidget {
-  const AdminRenewalScreen({super.key});
+  final String? initialMemberId;
+  const AdminRenewalScreen({super.key, this.initialMemberId});
 
   @override
   State<AdminRenewalScreen> createState() => _AdminRenewalScreenState();
@@ -84,6 +85,27 @@ class _AdminRenewalScreenState extends State<AdminRenewalScreen> {
                       m.phone.contains(_query),
                 )
                 .toList();
+          } else {
+            // Sort: Priority: expiring_soon > expired > active > paused
+            members.sort((a, b) {
+              int priority(MemberModel m) {
+                switch (m.currentStatus) {
+                  case 'expiring_soon': return 0;
+                  case 'expired': return 1;
+                  case 'active': return 2;
+                  default: return 3;
+                }
+              }
+              return priority(a).compareTo(priority(b));
+            });
+          }
+
+          if (widget.initialMemberId != null) {
+            members.sort((a, b) {
+              if (a.id == widget.initialMemberId) return -1;
+              if (b.id == widget.initialMemberId) return 1;
+              return 0;
+            });
           }
           if (members.isEmpty) {
             return const Center(
@@ -93,11 +115,34 @@ class _AdminRenewalScreenState extends State<AdminRenewalScreen> {
               ),
             );
           }
-          return ListView.builder(
-            padding: const EdgeInsets.all(16),
-            itemCount: members.length,
-            itemBuilder: (_, i) =>
-                _MemberRenewalCard(member: members[i], db: _db),
+          return Column(
+            children: [
+              if (widget.initialMemberId != null)
+                Container(
+                  margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: AppColors.primary.withValues(alpha: 0.3)),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.info_rounded, color: AppColors.primary, size: 18),
+                      const SizedBox(width: 8),
+                      const Text('Hội viên đã được chọn sẵn ở đầu danh sách.', style: TextStyle(color: AppColors.primary, fontSize: 12)),
+                    ],
+                  ),
+                ),
+              Expanded(
+                child: ListView.builder(
+                  padding: const EdgeInsets.all(16),
+                  itemCount: members.length,
+                  itemBuilder: (_, i) =>
+                      _MemberRenewalCard(member: members[i], db: _db),
+                ),
+              ),
+            ],
           );
         },
       ),
@@ -277,6 +322,108 @@ class _RenewalBottomSheetState extends State<RenewalBottomSheet> {
     if (_selectedPackage == null) return;
     setState(() => _isLoading = true);
 
+    if (_paymentMethod == 'transfer') {
+      final confirmTransfer = await showDialog<bool>(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) => AlertDialog(
+          backgroundColor: AppColors.surface,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+          title: const Row(
+            children: [
+              Icon(Icons.account_balance_rounded, color: AppColors.primary, size: 24),
+              SizedBox(width: 10),
+              Text(
+                'Thanh Toán Chuyển Khoản',
+                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18),
+              ),
+            ],
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'Quét mã VietQR bằng ứng dụng ngân hàng của khách để tự động điền số tiền và nội dung chuyển khoản.',
+                  style: TextStyle(color: AppColors.textSecondary, fontSize: 13, height: 1.4),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 16),
+                // VietQR Image from free API
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(16),
+                  child: Container(
+                    color: Colors.white,
+                    padding: const EdgeInsets.all(10),
+                    child: Image.network(
+                      'https://img.vietqr.io/image/MB-012345678-compact2.png?amount=${_selectedPackage!.price}&addInfo=Gia%20han%20goi%20tap%20cho%20${Uri.encodeComponent(widget.member.name)}&accountName=GYMSYNC%20MANAGEMENT',
+                      width: 220,
+                      height: 220,
+                      fit: BoxFit.contain,
+                      errorBuilder: (ctx, err, stack) => const SizedBox(
+                        width: 220,
+                        height: 220,
+                        child: Center(
+                          child: Icon(Icons.qr_code_2_rounded, size: 80, color: AppColors.textHint),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: AppColors.surfaceLight,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Column(
+                    children: [
+                      _buildBankDetailRow('Ngân hàng', 'MB Bank (Quân Đội)'),
+                      const Divider(color: Colors.white10, height: 12),
+                      _buildBankDetailRow('Số tài khoản', '012345678'),
+                      const Divider(color: Colors.white10, height: 12),
+                      _buildBankDetailRow('Chủ tài khoản', 'GYMSYNC MANAGEMENT'),
+                      const Divider(color: Colors.white10, height: 12),
+                      _buildBankDetailRow(
+                        'Số tiền',
+                        NumberFormat.simpleCurrency(locale: 'vi_VN').format(_selectedPackage!.price),
+                        valueColor: AppColors.primary,
+                      ),
+                      const Divider(color: Colors.white10, height: 12),
+                      _buildBankDetailRow('Nội dung', 'Gia han ${_selectedPackage!.name}'),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Huỷ Giao Dịch', style: TextStyle(color: AppColors.textSecondary)),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.success,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+              child: const Text(
+                'Xác Nhận Đã Nhận Tiền',
+                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+              ),
+            ),
+          ],
+        ),
+      );
+
+      if (confirmTransfer != true) {
+        setState(() => _isLoading = false);
+        return;
+      }
+    }
+
     final now = DateTime.now();
     // Nếu còn hạn thì cộng thêm, nếu hết hạn thì tính từ hôm nay
     final baseDate =
@@ -294,6 +441,7 @@ class _RenewalBottomSheetState extends State<RenewalBottomSheet> {
         'packageName': _selectedPackage!.name,
         'packageExpiry': Timestamp.fromDate(newExpiry),
         'status': MemberStatus.active.name,
+        'sessionsRemaining': _selectedPackage!.sessionCount,
       });
 
       // Ghi lịch sử gia hạn
@@ -306,6 +454,20 @@ class _RenewalBottomSheetState extends State<RenewalBottomSheet> {
         'paymentMethod': _paymentMethod,
         'renewedAt': Timestamp.now(),
         'newExpiry': Timestamp.fromDate(newExpiry),
+      });
+
+      // Ghi order cho tài chính
+      await FirebaseFirestore.instance.collection('orders').add({
+        'memberId': widget.member.id,
+        'packageId': _selectedPackage!.id,
+        'originalAmount': _selectedPackage!.price,
+        'discountAmount': 0.0,
+        'finalAmount': _selectedPackage!.price,
+        'paymentMethod': _paymentMethod,
+        'paymentNote': 'admin-renewal',
+        'status': 'paid',
+        'createdAt': Timestamp.now(),
+        'source': 'admin_renewal',
       });
 
       // Send notification
@@ -459,7 +621,7 @@ class _RenewalBottomSheetState extends State<RenewalBottomSheet> {
                         ),
                       ),
                       Text(
-                        pkg.priceLabel,
+                        NumberFormat.simpleCurrency(locale: 'vi_VN').format(pkg.price),
                         style: TextStyle(
                           color: isSelected
                               ? AppColors.primary
@@ -573,6 +735,23 @@ class _RenewalBottomSheetState extends State<RenewalBottomSheet> {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildBankDetailRow(String label, String value, {Color? valueColor}) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(label, style: const TextStyle(color: AppColors.textHint, fontSize: 12)),
+        Text(
+          value,
+          style: TextStyle(
+            color: valueColor ?? Colors.white,
+            fontWeight: FontWeight.bold,
+            fontSize: 12,
+          ),
+        ),
+      ],
     );
   }
 }

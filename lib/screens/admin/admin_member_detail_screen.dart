@@ -40,27 +40,40 @@ class _AdminMemberDetailScreenState extends State<AdminMemberDetailScreen>
   }
 
   Future<void> _loadData() async {
-    // Load trainer
-    if (widget.member.trainerId != null &&
-        widget.member.trainerId!.isNotEmpty) {
-      final trainers = await _db.getTrainers();
-      _trainer = trainers
-          .where((t) => t.id == widget.member.trainerId)
-          .firstOrNull;
+    try {
+      if (widget.member.trainerId != null &&
+          widget.member.trainerId!.isNotEmpty) {
+        final trainers = await _db.getTrainers();
+        _trainer = trainers
+            .where((t) => t.id == widget.member.trainerId)
+            .firstOrNull;
+      }
+
+      final snap = await FirebaseFirestore.instance
+          .collection('checkins')
+          .where('memberId', isEqualTo: widget.member.id)
+          .get();
+
+      final docs = snap.docs;
+      docs.sort((a, b) {
+        final ta = (a.data()['timestamp'] as Timestamp?)?.toDate() ?? DateTime.now();
+        final tb = (b.data()['timestamp'] as Timestamp?)?.toDate() ?? DateTime.now();
+        return tb.compareTo(ta);
+      });
+
+      if (mounted) {
+        setState(() {
+          _checkins = docs.take(30).toList();
+          _loading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+        });
+      }
     }
-
-    // Load check-in history
-    final snap = await FirebaseFirestore.instance
-        .collection('checkins')
-        .where('userId', isEqualTo: widget.member.userId)
-        .orderBy('checkInTime', descending: true)
-        .limit(30)
-        .get();
-
-    setState(() {
-      _checkins = snap.docs;
-      _loading = false;
-    });
   }
 
   Color get _statusColor {
@@ -382,7 +395,7 @@ class _CheckinTab extends StatelessWidget {
                       Text(
                         checkins.isNotEmpty
                             ? DateFormat('dd/MM').format(
-                                ((checkins.first.data() as Map)['checkInTime']
+                                ((checkins.first.data() as Map)['timestamp']
                                         as Timestamp)
                                     .toDate(),
                               )
@@ -410,7 +423,7 @@ class _CheckinTab extends StatelessWidget {
             itemCount: checkins.length,
             itemBuilder: (_, i) {
               final data = checkins[i].data() as Map<String, dynamic>;
-              final ts = data['checkInTime'] as Timestamp?;
+              final ts = data['timestamp'] as Timestamp?;
               final date = ts?.toDate() ?? DateTime.now();
               return Container(
                 margin: const EdgeInsets.only(bottom: 8),

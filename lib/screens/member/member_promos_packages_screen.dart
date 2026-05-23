@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/models/package_model.dart';
 import '../../core/models/coupon_model.dart';
+import '../../core/models/order_model.dart';
 import '../../core/services/firestore_service.dart';
 import '../../providers/auth_provider.dart';
 
@@ -355,6 +356,7 @@ class _MemberPromosPackagesScreenState extends State<MemberPromosPackagesScreen>
     }
 
     double finalPrice = (originalPrice - couponDiscount - studentDiscount).clamp(0, originalPrice);
+    PaymentMethod selectedMethod = PaymentMethod.transfer;
 
     showModalBottomSheet(
       context: context,
@@ -442,6 +444,33 @@ class _MemberPromosPackagesScreenState extends State<MemberPromosPackagesScreen>
                 ),
                 const SizedBox(height: 18),
                 const Text(
+                  'Phương Thức Thanh Toán',
+                  style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w700, fontSize: 14),
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _buildPaymentMethodCard(
+                        onTap: () => setS(() => selectedMethod = PaymentMethod.transfer),
+                        title: '💳 Chuyển Khoản',
+                        subtitle: 'Quét mã VietQR',
+                        isSelected: selectedMethod == PaymentMethod.transfer,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _buildPaymentMethodCard(
+                        onTap: () => setS(() => selectedMethod = PaymentMethod.cash),
+                        title: '💵 Tiền Mặt',
+                        subtitle: 'Duyệt tại quầy lễ tân',
+                        isSelected: selectedMethod == PaymentMethod.cash,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 18),
+                const Text(
                   'Chi Tiết Thanh Toán',
                   style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w700, fontSize: 14),
                 ),
@@ -471,7 +500,7 @@ class _MemberPromosPackagesScreenState extends State<MemberPromosPackagesScreen>
                   child: ElevatedButton(
                     onPressed: () async {
                       Navigator.pop(ctx); // Close sheet
-                      _executeCheckoutFlow(pkg, couponDiscount + studentDiscount);
+                      _executeCheckoutFlow(pkg, couponDiscount + studentDiscount, selectedMethod, finalPrice);
                     },
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.success,
@@ -479,7 +508,7 @@ class _MemberPromosPackagesScreenState extends State<MemberPromosPackagesScreen>
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                     ),
                     child: const Text(
-                      'Xác Nhận & Thanh Toán',
+                      'Xác Nhận Đăng Ký',
                       style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 14),
                     ),
                   ),
@@ -493,98 +522,22 @@ class _MemberPromosPackagesScreenState extends State<MemberPromosPackagesScreen>
     );
   }
 
-  Future<void> _executeCheckoutFlow(PackageModel pkg, double totalDiscount) async {
+  Future<void> _executeCheckoutFlow(
+    PackageModel pkg,
+    double totalDiscount,
+    PaymentMethod paymentMethod,
+    double finalPrice,
+  ) async {
     final user = context.read<AuthProvider>().user;
     if (user == null) return;
 
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => const Center(
-        child: CircularProgressIndicator(color: AppColors.accent),
-      ),
-    );
-
-    try {
-      // Create Order
-      final order = await _db.createOnlinePackageOrder(
-        memberId: user.uid,
-        package: pkg,
-        couponCode: _appliedCoupon?.code,
-        discountAmount: totalDiscount,
-        paymentNote: 'Thanh toán trực tuyến gói ${pkg.name}',
-      );
-
-      // Process Payment Instantly (online automatic checkout demo)
-      await _db.processPayment(order.id);
-
-      if (mounted) {
-        Navigator.pop(context); // Dismiss loading
-        _showSuccessDialog(pkg);
-      }
-    } catch (e) {
-      if (mounted) {
-        Navigator.pop(context); // Dismiss loading
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Thanh toán thất bại: ${e.toString()}'),
-            backgroundColor: AppColors.error,
-          ),
-        );
-      }
+    if (paymentMethod == PaymentMethod.transfer) {
+      _showVietQRDialog(pkg, totalDiscount, finalPrice);
+    } else {
+      _executeCashCheckoutFlow(pkg, totalDiscount);
     }
   }
 
-  void _showSuccessDialog(PackageModel pkg) {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: AppColors.surface,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: AppColors.success.withValues(alpha: 0.15),
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(Icons.check_circle_outline_rounded, color: AppColors.success, size: 52),
-            ),
-            const SizedBox(height: 16),
-            const Text(
-              'Thanh Toán Thành Công!',
-              style: TextStyle(color: AppColors.textPrimary, fontSize: 18, fontWeight: FontWeight.w800),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Gói tập "${pkg.name}" đã được kích hoạt thành công cho tài khoản của bạn.',
-              style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 24),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: () {
-                  Navigator.pop(ctx);
-                  Navigator.pop(context); // Back to dashboard
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.accent,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                ),
-                child: const Text('Bắt Đầu Tập Luyện', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 
   Widget _priceRow(String label, String value, {bool isDiscount = false, bool isTotal = false}) {
     return Padding(
@@ -615,6 +568,357 @@ class _MemberPromosPackagesScreenState extends State<MemberPromosPackagesScreen>
         ],
       ),
     );
+  }
+
+  Widget _buildPaymentMethodCard({
+    required VoidCallback onTap,
+    required String title,
+    required String subtitle,
+    required bool isSelected,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 14),
+        decoration: BoxDecoration(
+          color: isSelected ? AppColors.accent.withValues(alpha: 0.1) : AppColors.surfaceLight,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: isSelected ? AppColors.accent : Colors.white.withValues(alpha: 0.05),
+            width: isSelected ? 1.5 : 1,
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              style: TextStyle(
+                color: isSelected ? AppColors.accent : AppColors.textPrimary,
+                fontWeight: FontWeight.bold,
+                fontSize: 13,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              subtitle,
+              style: const TextStyle(
+                color: AppColors.textHint,
+                fontSize: 10,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showCashSuccessDialog(PackageModel pkg) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: AppColors.warning.withValues(alpha: 0.15),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.info_outline_rounded, color: AppColors.warning, size: 52),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'Đăng Ký Thành Công!',
+              style: TextStyle(color: AppColors.textPrimary, fontSize: 18, fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Gói tập "${pkg.name}" đã được đăng ký thành công.\n\nVui lòng thanh toán tiền mặt tại quầy lễ tân để Admin duyệt kích hoạt gói tập của bạn.',
+              style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  Navigator.pop(context); // Back to dashboard
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.accent,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+                child: const Text('Đóng', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showVietQRDialog(PackageModel pkg, double totalDiscount, double finalPrice) {
+    final user = context.read<AuthProvider>().user;
+    if (user == null) return;
+
+    final memo = 'GYMSYNC ${user.uid.substring(0, 8).toUpperCase()}';
+    final qrUrl = 'https://img.vietqr.io/image/MB-012345678-compact.png?amount=${finalPrice.toInt()}&addInfo=${Uri.encodeComponent(memo)}&accountName=GYMSYNC%20MANAGEMENT';
+
+    showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (dialogCtx) => StatefulBuilder(
+        builder: (dialogCtx2, setS2) => AlertDialog(
+          backgroundColor: AppColors.surface,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+          title: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                'Quét QR Chuyển Khoản',
+                style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+              IconButton(
+                icon: const Icon(Icons.close, color: AppColors.textHint),
+                onPressed: () => Navigator.pop(dialogCtx),
+              ),
+            ],
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'Dùng app ngân hàng để quét mã thanh toán',
+                  style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 16),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(16),
+                  child: Image.network(
+                    qrUrl,
+                    height: 240,
+                    width: 240,
+                    fit: BoxFit.cover,
+                    loadingBuilder: (context, child, loadingProgress) {
+                      if (loadingProgress == null) return child;
+                      return const SizedBox(
+                        height: 240,
+                        width: 240,
+                        child: Center(child: CircularProgressIndicator(color: AppColors.accent)),
+                      );
+                    },
+                    errorBuilder: (context, error, stackTrace) => const SizedBox(
+                      height: 240,
+                      width: 240,
+                      child: Center(
+                        child: Icon(Icons.qr_code_2_rounded, size: 64, color: AppColors.textHint),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: AppColors.surfaceLight,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Column(
+                    children: [
+                      _infoRow('Ngân hàng', 'MB Bank (Quân Đội)'),
+                      _infoRow('Số tài khoản', '012345678'),
+                      _infoRow('Chủ tài khoản', 'GYMSYNC MANAGEMENT'),
+                      _infoRow('Số tiền', NumberFormat.simpleCurrency(locale: 'vi_VN').format(finalPrice)),
+                      _infoRow('Nội dung', memo, isHighlight: true),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: () async {
+                  Navigator.pop(dialogCtx); // close dialog
+                  _executeTransferCheckoutFlow(pkg, totalDiscount, memo);
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.success,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+                child: const Text(
+                  'Tôi Đã Chuyển Khoản',
+                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _infoRow(String label, String value, {bool isHighlight = false}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: const TextStyle(color: AppColors.textSecondary, fontSize: 12)),
+          Text(
+            value,
+            style: TextStyle(
+              color: isHighlight ? AppColors.accent : Colors.white,
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _executeTransferCheckoutFlow(PackageModel pkg, double totalDiscount, String memo) async {
+    final user = context.read<AuthProvider>().user;
+    if (user == null) return;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(
+        child: CircularProgressIndicator(color: AppColors.accent),
+      ),
+    );
+
+    try {
+      // Create Order in pending state
+      await _db.createOnlinePackageOrder(
+        memberId: user.uid,
+        package: pkg,
+        couponCode: _appliedCoupon?.code,
+        discountAmount: totalDiscount,
+        paymentMethod: PaymentMethod.transfer,
+        paymentNote: 'Chuyển khoản VietQR: $memo',
+      );
+
+      if (mounted) {
+        Navigator.pop(context); // Dismiss loading
+        _showTransferSuccessDialog(pkg);
+      }
+    } catch (e) {
+      if (mounted) {
+        Navigator.pop(context); // Dismiss loading
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Đăng ký thất bại: ${e.toString()}'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    }
+  }
+
+  void _showTransferSuccessDialog(PackageModel pkg) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: AppColors.success.withValues(alpha: 0.15),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.check_circle_outline_rounded, color: AppColors.success, size: 52),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'Gửi Yêu Cầu Thành Công!',
+              style: TextStyle(color: AppColors.textPrimary, fontSize: 18, fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Yêu cầu thanh toán chuyển khoản cho gói "${pkg.name}" đã được ghi nhận.\n\nAdmin sẽ xác minh tài khoản và kích hoạt gói tập cho bạn trong thời gian sớm nhất!',
+              style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  Navigator.pop(context); // Back to dashboard
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.accent,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+                child: const Text('Đóng', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _executeCashCheckoutFlow(PackageModel pkg, double totalDiscount) async {
+    final user = context.read<AuthProvider>().user;
+    if (user == null) return;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(
+        child: CircularProgressIndicator(color: AppColors.accent),
+      ),
+    );
+
+    try {
+      // Create Order in pending state
+      await _db.createOnlinePackageOrder(
+        memberId: user.uid,
+        package: pkg,
+        couponCode: _appliedCoupon?.code,
+        discountAmount: totalDiscount,
+        paymentMethod: PaymentMethod.cash,
+        paymentNote: 'Thanh toán tiền mặt gói ${pkg.name}',
+      );
+
+      if (mounted) {
+        Navigator.pop(context); // Dismiss loading
+        _showCashSuccessDialog(pkg);
+      }
+    } catch (e) {
+      if (mounted) {
+        Navigator.pop(context); // Dismiss loading
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Thanh toán thất bại: ${e.toString()}'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    }
   }
 
   @override

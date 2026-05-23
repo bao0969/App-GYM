@@ -1,5 +1,6 @@
 // Tính năng mới: Quản lý kho - sản phẩm bán hàng
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/models/product_model.dart';
 import '../../core/services/firestore_service.dart';
@@ -342,7 +343,7 @@ class _ProductTile extends StatelessWidget {
                           style: TextStyle(color: AppColors.textHint),
                         ),
                         Text(
-                          '${product.priceLabel} VNĐ',
+                          NumberFormat.simpleCurrency(locale: 'vi_VN').format(product.price),
                           style: const TextStyle(
                             color: AppColors.primary,
                             fontSize: 12,

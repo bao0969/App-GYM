@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/models/package_model.dart';
 import '../../core/services/firestore_service.dart';
@@ -119,6 +120,36 @@ class _AdminPackagesScreenState extends State<AdminPackagesScreen> {
     final features = List<String>.from(existing?.features ?? []);
     String selectedColor = existing?.color ?? 'orange';
     bool isActive = existing?.isActive ?? true;
+    PackageType selectedType = existing?.type ?? PackageType.time;
+    final sessionCtrl = TextEditingController(
+      text: existing != null && existing.sessionCount > 0 ? existing.sessionCount.toString() : '',
+    );
+
+    Widget buildTypeChip(StateSetter setS, PackageType current, PackageType value, String label) {
+      final isSelected = current == value;
+      return GestureDetector(
+        onTap: () => setS(() => selectedType = value),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+          decoration: BoxDecoration(
+            color: isSelected ? AppColors.primary.withValues(alpha: 0.15) : AppColors.surfaceLight,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: isSelected ? AppColors.primary : Colors.white.withValues(alpha: 0.08),
+              width: isSelected ? 1.5 : 1,
+            ),
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              color: isSelected ? AppColors.primary : AppColors.textSecondary,
+              fontSize: 12,
+              fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+            ),
+          ),
+        ),
+      );
+    }
 
     showModalBottomSheet(
       context: context,
@@ -173,6 +204,28 @@ class _AdminPackagesScreenState extends State<AdminPackagesScreen> {
                   Icons.calendar_today_rounded,
                   type: TextInputType.number,
                 ),
+                const SizedBox(height: 10),
+                const Text(
+                  'Loại Gói',
+                  style: TextStyle(color: AppColors.textSecondary, fontSize: 13, fontWeight: FontWeight.w500),
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    buildTypeChip(setS, selectedType, PackageType.time, '📅 Theo Ngày'),
+                    buildTypeChip(setS, selectedType, PackageType.session, '🎫 Theo Buổi'),
+                    buildTypeChip(setS, selectedType, PackageType.pt, '🏋️ Gói PT'),
+                    buildTypeChip(setS, selectedType, PackageType.groupClass, '👥 Lớp Nhóm'),
+                    buildTypeChip(setS, selectedType, PackageType.allAccess, '♾️ Toàn Quyền'),
+                    buildTypeChip(setS, selectedType, PackageType.trial, '🆕 Dùng Thử'),
+                  ],
+                ),
+                if (selectedType == PackageType.session || selectedType == PackageType.pt || selectedType == PackageType.groupClass) ...[
+                  const SizedBox(height: 10),
+                  _TF('Số Buổi', sessionCtrl, Icons.confirmation_number_rounded, type: TextInputType.number),
+                ],
                 const SizedBox(height: 10),
                 _TF('Mô Tả', descCtrl, Icons.description_rounded, maxLines: 2),
                 const SizedBox(height: 14),
@@ -361,8 +414,10 @@ class _AdminPackagesScreenState extends State<AdminPackagesScreen> {
                       }
                       final data = {
                         'name': nameCtrl.text.trim(),
+                        'type': selectedType.name,
                         'price': price,
                         'durationDays': days,
+                        'sessionCount': int.tryParse(sessionCtrl.text.trim()) ?? 0,
                         'description': descCtrl.text.trim(),
                         'features': features,
                         'isActive': isActive,
@@ -430,6 +485,17 @@ class _PackageCard extends StatelessWidget {
   bool get _isPopular =>
       package.durationDays >= 85 && package.durationDays <= 95;
 
+  String _typeLabel(PackageType type) {
+    switch (type) {
+      case PackageType.time: return '📅 Theo Ngày';
+      case PackageType.session: return '🎫 Theo Buổi';
+      case PackageType.pt: return '🏋️ Gói PT';
+      case PackageType.groupClass: return '👥 Lớp Nhóm';
+      case PackageType.allAccess: return '♾️ Toàn Quyền';
+      case PackageType.trial: return '🆕 Dùng Thử';
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Opacity(
@@ -476,31 +542,47 @@ class _PackageCard extends StatelessWidget {
                                 fontSize: 13,
                               ),
                             ),
+                            const SizedBox(height: 4),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.2),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Text(
+                                _typeLabel(package.type),
+                                style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w600),
+                              ),
+                            ),
                           ],
                         ),
                       ),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 14,
-                          vertical: 8,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.2),
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: Text(
-                          package.priceLabel,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w900,
-                            fontSize: 15,
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          const Text(
+                            'GIÁ ĐĂNG KÝ',
+                            style: TextStyle(
+                              color: Colors.white70,
+                              fontSize: 9,
+                              fontWeight: FontWeight.w700,
+                            ),
                           ),
-                        ),
+                          const SizedBox(height: 2),
+                          Text(
+                            NumberFormat.simpleCurrency(locale: 'vi_VN').format(package.price),
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w900,
+                              fontSize: 18,
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),
                   if (package.description.isNotEmpty) ...[
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 12),
                     Text(
                       package.description,
                       style: TextStyle(
